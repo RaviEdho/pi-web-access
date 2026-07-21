@@ -4,8 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- Added request-time `$ENV_VAR` and `!command` credential sources for Exa and Gemini API configuration, with bounded output, redacted failures, and strict source precedence. Thanks to Ezra Miller (@ezmill) for #137.
+
 ### Changed
 - Deferred the heavy content extraction module until the first `fetch_content` or `includeContent` search call, reducing extension startup work. Thanks Kaushik Gopal (@kaushikgopal) for PR #125.
+- Send direct Gemini API credentials in `x-goog-api-key` headers for generate, upload, status, and delete requests instead of URL query parameters.
 
 ### Fixed
 - Updated the `librarian` skill to use verified, session-scoped clone paths returned by `fetch_content` instead of assuming `/tmp/pi-github-repos`, and to refetch missing clones. Thanks mcwalrus (@mcwalrus) for #136 and gravewhisper (@gravewhisper) for #23.
