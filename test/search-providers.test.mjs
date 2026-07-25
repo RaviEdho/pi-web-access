@@ -10,6 +10,7 @@ const exaModuleUrl = new URL("../exa.ts", import.meta.url).href;
 const openaiModuleUrl = new URL("../openai-search.ts", import.meta.url).href;
 const perplexityModuleUrl = new URL("../perplexity.ts", import.meta.url).href;
 const tavilyModuleUrl = new URL("../tavily.ts", import.meta.url).href;
+const searxngModuleUrl = new URL("../searxng.ts", import.meta.url).href;
 const searchModuleUrl = new URL("../gemini-search.ts", import.meta.url).href;
 
 function runChild(script, env) {
@@ -21,6 +22,7 @@ function runChild(script, env) {
 		"BRAVE_API_KEY",
 		"PARALLEL_API_KEY",
 		"TAVILY_API_KEY",
+		"SEARXNG_BASE_URL",
 		"EXA_API_KEY",
 		"PERPLEXITY_API_KEY",
 		"GEMINI_API_KEY",
@@ -155,6 +157,107 @@ test("Tavily search uses bearer auth and maps filters/content", async () => {
 	assert.equal(output.result.answer, "Tavily answer");
 	assert.deepEqual(output.result.results, [{ title: "Tavily Docs", url: "https://docs.tavily.com/search", snippet: "Search docs snippet" }]);
 	assert.deepEqual(output.result.inlineContent, [{ url: "https://docs.tavily.com/search", title: "Tavily Docs", content: "# Tavily Docs\nFull content", error: null }]);
+});
+
+test("SearXNG search is SSRF-guarded and preferred first when configured", async () => {
+	const home = await mkdtemp(join(tmpdir(), "pi-web-access-searxng-"));
+	const child = runChild(`
+		const { writeFileSync } = await import("node:fs");
+		writeFileSync(${JSON.stringify(home)} + "/web-search.json", JSON.stringify({
+			searxngBaseUrl: "http://127.0.0.1:8443/",
+			ssrf: { allowRanges: ["127.0.0.1"] },
+		}));
+		const calls = [];
+		globalThis.fetch = async (url, init = {}) => {
+			calls.push({ url: String(url), redirect: init.redirect });
+			return new Response(JSON.stringify({
+				answers: ["SearXNG answer"],
+				results: [
+					{ title: "Allowed", url: "https://docs.example.com/a", content: "allowed" },
+					{ title: "Blocked", url: "https://private.example.net/b", content: "blocked" },
+				],
+			}), { status: 200, headers: { "content-type": "application/json" } });
+		};
+		const { searchWithSearXNG } = await import(${JSON.stringify(searxngModuleUrl)});
+		const { search } = await import(${JSON.stringify(searchModuleUrl)});
+		const direct = await searchWithSearXNG("self hosted", { domainFilter: ["example.com", "-private.example.net"], numResults: 2 });
+		const auto = await search("local first", { provider: "auto" });
+		console.log(JSON.stringify({ calls, direct, auto }));
+	`, {
+		HOME: home,
+		USERPROFILE: home,
+		PI_CODING_AGENT_DIR: home,
+	});
+
+	assert.equal(child.status, 0, child.stderr);
+	const output = JSON.parse(child.stdout.trim());
+	assert.equal(output.calls.length, 2);
+	assert.equal(output.calls[0].url, "http://127.0.0.1:8443/search?q=self+hosted+site%3Aexample.com+-site%3Aprivate.example.net&format=json");
+	assert.equal(output.calls[0].redirect, "manual");
+	assert.deepEqual(output.direct.results, [{ title: "Allowed", url: "https://docs.example.com/a", snippet: "allowed" }]);
+	assert.equal(output.auto.provider, "searxng");
+});
+
+test("SearXNG redirect validation rejects an unapproved private target", async () => {
+	const home = await mkdtemp(join(tmpdir(), "pi-web-access-searxng-redirect-"));
+	const child = runChild(`
+		const { writeFileSync } = await import("node:fs");
+		writeFileSync(${JSON.stringify(home)} + "/web-search.json", JSON.stringify({
+			searxngBaseUrl: "http://127.0.0.1:8443/",
+			ssrf: { allowRanges: ["127.0.0.1"] },
+		}));
+		globalThis.fetch = async () => new Response(null, {
+			status: 302,
+			headers: { location: "http://127.0.0.2:8443/search" },
+		});
+		const { searchWithSearXNG } = await import(${JSON.stringify(searxngModuleUrl)});
+		try {
+			await searchWithSearXNG("redirect");
+			console.log(JSON.stringify({ ok: true }));
+		} catch (error) {
+			console.log(JSON.stringify({ ok: false, error: String(error) }));
+		}
+	`, {
+		HOME: home,
+		USERPROFILE: home,
+		PI_CODING_AGENT_DIR: home,
+	});
+
+	assert.equal(child.status, 0, child.stderr);
+	const output = JSON.parse(child.stdout.trim());
+	assert.equal(output.ok, false);
+	assert.match(output.error, /Blocked internal address/);
+});
+
+test("malformed SearXNG SSRF config fails before hosted auto fallback", async () => {
+	const home = await mkdtemp(join(tmpdir(), "pi-web-access-searxng-config-"));
+	const child = runChild(`
+		const { writeFileSync } = await import("node:fs");
+		writeFileSync(${JSON.stringify(home)} + "/web-search.json", JSON.stringify({
+			searxngBaseUrl: "https://search.example.com",
+			ssrf: { allowRanges: ["127.0.0.0/33"] },
+		}));
+		globalThis.fetch = async () => new Response(JSON.stringify({
+			results: [{ title: "Hosted fallback", url: "https://example.com", content: "should not be used" }],
+		}), { status: 200, headers: { "content-type": "application/json" } });
+		const { search } = await import(${JSON.stringify(searchModuleUrl)});
+		try {
+			await search("config", { provider: "auto" });
+			console.log(JSON.stringify({ ok: true }));
+		} catch (error) {
+			console.log(JSON.stringify({ ok: false, error: String(error) }));
+		}
+	`, {
+		HOME: home,
+		USERPROFILE: home,
+		PI_CODING_AGENT_DIR: home,
+		TAVILY_API_KEY: "tvly-hosted-fallback-must-not-run",
+	});
+
+	assert.equal(child.status, 0, child.stderr);
+	const output = JSON.parse(child.stdout.trim());
+	assert.equal(output.ok, false);
+	assert.match(output.error, /Invalid CIDR notation in ssrf\.allowRanges/);
 });
 
 test("auto provider falls through to Tavily after unavailable earlier providers", async () => {

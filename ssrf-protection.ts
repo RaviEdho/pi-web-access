@@ -1,5 +1,7 @@
 import { lookup as dnsLookup } from "node:dns/promises";
+import { existsSync, readFileSync } from "node:fs";
 import net from "node:net";
+import { getWebSearchConfigPath } from "./utils.ts";
 
 const DEFAULT_MAX_REDIRECTS = 5;
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
@@ -7,6 +9,54 @@ const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 export type LookupAddress = { address: string; family: number };
 export type Lookup = (hostname: string) => Promise<LookupAddress[]>;
 type Fetch = typeof fetch;
+
+const WEB_SEARCH_CONFIG_PATH = getWebSearchConfigPath();
+
+export interface SsrfConfig {
+	allowRanges: string[];
+	trustEnvProxy: boolean;
+}
+
+export function loadSsrfConfig(): SsrfConfig {
+	if (!existsSync(WEB_SEARCH_CONFIG_PATH)) return { allowRanges: [], trustEnvProxy: false };
+	let raw: string;
+	try {
+		raw = readFileSync(WEB_SEARCH_CONFIG_PATH, "utf-8");
+	} catch {
+		return { allowRanges: [], trustEnvProxy: false };
+	}
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(raw);
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		throw new Error(`Failed to parse ${WEB_SEARCH_CONFIG_PATH}: ${message}`);
+	}
+	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+		return { allowRanges: [], trustEnvProxy: false };
+	}
+	const ssrf = (parsed as { ssrf?: unknown }).ssrf;
+	if (ssrf === undefined || ssrf === null) return { allowRanges: [], trustEnvProxy: false };
+	if (typeof ssrf !== "object" || Array.isArray(ssrf)) {
+		throw new Error(`ssrf in ${WEB_SEARCH_CONFIG_PATH} must be an object`);
+	}
+	const config = ssrf as { allowRanges?: unknown; trustEnvProxy?: unknown };
+	if (config.allowRanges !== undefined && config.allowRanges !== null && !Array.isArray(config.allowRanges)) {
+		throw new Error(`ssrf.allowRanges in ${WEB_SEARCH_CONFIG_PATH} must be an array of CIDR strings`);
+	}
+	if (config.trustEnvProxy !== undefined && typeof config.trustEnvProxy !== "boolean") {
+		throw new Error(`ssrf.trustEnvProxy in ${WEB_SEARCH_CONFIG_PATH} must be a boolean`);
+	}
+	const allowRangesValue: unknown[] = Array.isArray(config.allowRanges) ? config.allowRanges : [];
+	const allowRanges = allowRangesValue.map((entry, index) => {
+		if (typeof entry !== "string") {
+			throw new Error(`ssrf.allowRanges in ${WEB_SEARCH_CONFIG_PATH} must contain only CIDR strings; entry ${index + 1} is ${typeof entry}`);
+		}
+		return entry.trim();
+	}).filter(Boolean);
+	parseAllowRanges(allowRanges);
+	return { allowRanges, trustEnvProxy: config.trustEnvProxy === true };
+}
 
 interface ValidationOptions {
 	lookup?: Lookup;

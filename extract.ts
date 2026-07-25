@@ -11,8 +11,7 @@ import { CredentialResolutionError } from "./credential-source.ts";
 import { extractWithUrlContext, extractWithGeminiWeb } from "./gemini-url-context.ts";
 import { extractWithParallel, isParallelAvailable } from "./parallel.ts";
 import { isVideoFile, extractVideo, extractVideoFrame, getLocalVideoDuration } from "./video-extract.ts";
-import { existsSync, readFileSync } from "node:fs";
-import { fetchRemoteUrl, validateRemoteUrl, type Lookup } from "./ssrf-protection.ts";
+import { fetchRemoteUrl, loadSsrfConfig, validateRemoteUrl, type Lookup } from "./ssrf-protection.ts";
 import { formatSeconds, getWebSearchConfigPath } from "./utils.ts";
 
 const DEFAULT_TIMEOUT_MS = 30000;
@@ -22,56 +21,7 @@ const NON_RECOVERABLE_ERRORS = ["Unsupported content type", "Response too large"
 const MIN_USEFUL_CONTENT = 500;
 const WEB_SEARCH_CONFIG_PATH = getWebSearchConfigPath();
 
-interface SsrfConfig {
-	allowRanges: string[];
-	trustEnvProxy: boolean;
-}
-
-/**
- * Read SSRF-related config from web-search.json. Missing or unreadable config
- * uses the safest defaults; mistyped values throw so protection is not silently
- * weakened.
- */
-export function loadSsrfConfig(): SsrfConfig {
-	if (!existsSync(WEB_SEARCH_CONFIG_PATH)) return { allowRanges: [], trustEnvProxy: false };
-	let raw: string;
-	try {
-		raw = readFileSync(WEB_SEARCH_CONFIG_PATH, "utf-8");
-	} catch {
-		return { allowRanges: [], trustEnvProxy: false };
-	}
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(raw);
-	} catch (err) {
-		const message = err instanceof Error ? err.message : String(err);
-		throw new Error(`Failed to parse ${WEB_SEARCH_CONFIG_PATH}: ${message}`);
-	}
-	const ssrf = parsed && typeof parsed === "object" && !Array.isArray(parsed)
-		? (parsed as { ssrf?: unknown }).ssrf
-		: undefined;
-	if (ssrf === undefined || ssrf === null) return { allowRanges: [], trustEnvProxy: false };
-	if (typeof ssrf !== "object" || Array.isArray(ssrf)) {
-		throw new Error(`ssrf in ${WEB_SEARCH_CONFIG_PATH} must be an object`);
-	}
-	const allowRangesValue = (ssrf as { allowRanges?: unknown }).allowRanges;
-	const trustEnvProxyValue = (ssrf as { trustEnvProxy?: unknown }).trustEnvProxy;
-	if (allowRangesValue !== undefined && allowRangesValue !== null && !Array.isArray(allowRangesValue)) {
-		throw new Error(`ssrf.allowRanges in ${WEB_SEARCH_CONFIG_PATH} must be an array of CIDR strings`);
-	}
-	if (trustEnvProxyValue !== undefined && typeof trustEnvProxyValue !== "boolean") {
-		throw new Error(`ssrf.trustEnvProxy in ${WEB_SEARCH_CONFIG_PATH} must be a boolean`);
-	}
-	const ranges: string[] = [];
-	for (const [index, entry] of (allowRangesValue ?? []).entries()) {
-		if (typeof entry !== "string") {
-			throw new Error(`ssrf.allowRanges in ${WEB_SEARCH_CONFIG_PATH} must contain only CIDR strings; entry ${index + 1} is ${typeof entry}`);
-		}
-		const trimmed = entry.trim();
-		if (trimmed) ranges.push(trimmed);
-	}
-	return { allowRanges: ranges, trustEnvProxy: trustEnvProxyValue === true };
-}
+export { loadSsrfConfig } from "./ssrf-protection.ts";
 
 export function loadSsrfAllowRanges(): string[] {
 	return loadSsrfConfig().allowRanges;
