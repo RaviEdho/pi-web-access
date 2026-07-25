@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { activityMonitor } from "./activity.ts";
-import { getApiKey, getVersionedApiBase, buildKeyParam, buildAuthHeaders, isGatewayConfigured, DEFAULT_MODEL } from "./gemini-api.ts";
+import { getApiKey, getVersionedApiBase, buildKeyParam, buildAuthHeaders, isGatewayConfigured } from "./gemini-api.ts";
 import { isGeminiWebAvailable, queryWithCookies } from "./gemini-web.ts";
 import { isPerplexityAvailable, searchWithPerplexity, type SearchResult, type SearchResponse, type SearchOptions } from "./perplexity.ts";
 import { hasExaApiKey, isExaAvailable, searchWithExa } from "./exa.ts";
@@ -19,6 +19,7 @@ export interface AttributedSearchResponse extends SearchResponse {
 }
 
 const CONFIG_PATH = getWebSearchConfigPath();
+const DEFAULT_SEARCH_MODEL = "gemini-2.5-flash";
 
 let cachedSearchConfig: { searchProvider: SearchProvider; searchModel?: string } | null = null;
 
@@ -266,7 +267,7 @@ async function searchWithGeminiApi(query: string, options: SearchOptions = {}): 
 	const activityId = activityMonitor.logStart({ type: "api", query });
 
 	try {
-		const model = getSearchConfig().searchModel ?? DEFAULT_MODEL;
+		const model = getSearchConfig().searchModel ?? DEFAULT_SEARCH_MODEL;
 		const body = {
 			contents: [{ role: "user", parts: [{ text: query }] }],
 			tools: [{ google_search: {} }],

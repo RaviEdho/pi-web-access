@@ -283,3 +283,61 @@ test("OpenAI search requires web_search and maps domain filters", async () => {
 		"https://openai.com/blog",
 	]);
 });
+
+test("Gemini API search uses its search-only default model", async () => {
+	const home = await mkdtemp(join(tmpdir(), "pi-web-access-gemini-default-"));
+	const child = runChild(`
+		let capturedUrl = "";
+		let capturedBody = null;
+		globalThis.fetch = async (url, init) => {
+			capturedUrl = String(url);
+			capturedBody = JSON.parse(init.body);
+			return new Response(JSON.stringify({
+				candidates: [{ content: { parts: [{ text: "Gemini answer" }] } }],
+			}), { status: 200, headers: { "content-type": "application/json" } });
+		};
+
+		const { search } = await import(${JSON.stringify(searchModuleUrl)});
+		const result = await search("latest TypeScript version", { provider: "gemini" });
+		console.log(JSON.stringify({ capturedUrl, capturedBody, provider: result.provider }));
+	`, {
+		HOME: home,
+		USERPROFILE: home,
+		PI_CODING_AGENT_DIR: home,
+		GEMINI_API_KEY: "gemini-test-key",
+	});
+
+	assert.equal(child.status, 0, child.stderr);
+	const output = JSON.parse(child.stdout.trim());
+	assert.equal(output.capturedUrl, "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=gemini-test-key");
+	assert.deepEqual(output.capturedBody.tools, [{ google_search: {} }]);
+	assert.equal(output.provider, "gemini");
+});
+
+test("Gemini API search preserves the configured searchModel", async () => {
+	const home = await mkdtemp(join(tmpdir(), "pi-web-access-gemini-configured-"));
+	const child = runChild(`
+		const { writeFile } = await import("node:fs/promises");
+		await writeFile(process.env.PI_CODING_AGENT_DIR + "/web-search.json", JSON.stringify({ searchModel: "custom-gemini-model" }));
+
+		let capturedUrl = "";
+		globalThis.fetch = async (url, init) => {
+			capturedUrl = String(url);
+			return new Response(JSON.stringify({
+				candidates: [{ content: { parts: [{ text: "Gemini answer" }] } }],
+			}), { status: 200, headers: { "content-type": "application/json" } });
+		};
+
+		const { search } = await import(${JSON.stringify(searchModuleUrl)});
+		await search("configured model", { provider: "gemini" });
+		console.log(capturedUrl);
+	`, {
+		HOME: home,
+		USERPROFILE: home,
+		PI_CODING_AGENT_DIR: home,
+		GEMINI_API_KEY: "gemini-test-key",
+	});
+
+	assert.equal(child.status, 0, child.stderr);
+	assert.equal(child.stdout.trim(), "https://generativelanguage.googleapis.com/v1beta/models/custom-gemini-model:generateContent?key=gemini-test-key");
+});
