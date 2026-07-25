@@ -56,6 +56,65 @@ test("validateRemoteUrl permits public HTTP and HTTPS targets", async () => {
 	assert.equal((await validateRemoteUrl("https://[2606:2800:220:1:248:1893:25c8:1946]/")).hostname, "[2606:2800:220:1:248:1893:25c8:1946]");
 });
 
+test("domain policy allows exact and subdomain matches, and is off by default", async () => {
+	assert.equal((await validateRemoteUrl("https://example.com/", { lookup: publicLookup })).hostname, "example.com");
+	assert.equal((await validateRemoteUrl("https://www.example.com/", {
+		lookup: publicLookup,
+		domainPolicy: { allow: ["example.com"], deny: [] },
+	})).hostname, "www.example.com");
+	await assert.rejects(
+		validateRemoteUrl("https://other.test/", {
+			lookup: publicLookup,
+			domainPolicy: { allow: ["example.com"], deny: [] },
+		}),
+		/Hostname not allowed by fetch_content domain policy/,
+	);
+});
+
+test("domain policy deny wins over allow", async () => {
+	await assert.rejects(
+		validateRemoteUrl("https://private.example.com/", {
+			lookup: publicLookup,
+			domainPolicy: { allow: ["example.com"], deny: ["private.example.com"] },
+		}),
+		/Blocked hostname by fetch_content domain policy/,
+	);
+});
+
+test("domain policy validates redirect targets before following", async () => {
+	const requested = [];
+	const fetchImpl = async (url) => {
+		requested.push(url.toString());
+		return new Response("", { status: 302, headers: { location: "https://denied.example/next" } });
+	};
+
+	await assert.rejects(
+		fetchRemoteUrl("https://allowed.example/", {}, {
+			lookup: publicLookup,
+			fetch: fetchImpl,
+			domainPolicy: { allow: ["allowed.example"], deny: ["denied.example"] },
+		}),
+		/Blocked hostname by fetch_content domain policy/,
+	);
+	assert.deepEqual(requested, ["https://allowed.example/"]);
+});
+
+test("domain policy never relaxes SSRF protection", async () => {
+	await assert.rejects(
+		validateRemoteUrl("http://127.0.0.1/", {
+			domainPolicy: { allow: ["127.0.0.1"], deny: [] },
+		}),
+		/Blocked internal address/,
+	);
+	await assert.rejects(
+		validateRemoteUrl("https://internal.example/", {
+			lookup: async () => [{ address: "10.0.0.5", family: 4 }],
+			domainPolicy: { allow: ["example"], deny: [] },
+		}),
+		/Blocked internal address/,
+	);
+});
+
 test("fetchRemoteUrl validates redirect targets before following", async () => {
 	const requested = [];
 	const fetchImpl = async (url) => {

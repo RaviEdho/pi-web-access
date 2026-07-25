@@ -17,6 +17,73 @@ export interface SsrfConfig {
 	trustEnvProxy: boolean;
 }
 
+export interface DomainPolicy {
+	allow: string[];
+	deny: string[];
+}
+
+const DEFAULT_DOMAIN_POLICY: DomainPolicy = { allow: [], deny: [] };
+
+export function loadFetchContentDomainPolicy(): DomainPolicy {
+	if (!existsSync(WEB_SEARCH_CONFIG_PATH)) return { ...DEFAULT_DOMAIN_POLICY };
+	let raw: string;
+	try {
+		raw = readFileSync(WEB_SEARCH_CONFIG_PATH, "utf-8");
+	} catch {
+		return { ...DEFAULT_DOMAIN_POLICY };
+	}
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(raw);
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		throw new Error(`Failed to parse ${WEB_SEARCH_CONFIG_PATH}: ${message}`);
+	}
+	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+		return { ...DEFAULT_DOMAIN_POLICY };
+	}
+	const fetchContent = (parsed as { fetchContent?: unknown }).fetchContent;
+	if (fetchContent === undefined || fetchContent === null) return { ...DEFAULT_DOMAIN_POLICY };
+	if (typeof fetchContent !== "object" || Array.isArray(fetchContent)) {
+		throw new Error(`fetchContent in ${WEB_SEARCH_CONFIG_PATH} must be an object`);
+	}
+	const policy = (fetchContent as { domainPolicy?: unknown }).domainPolicy;
+	if (policy === undefined || policy === null) return { ...DEFAULT_DOMAIN_POLICY };
+	if (typeof policy !== "object" || Array.isArray(policy)) {
+		throw new Error(`fetchContent.domainPolicy in ${WEB_SEARCH_CONFIG_PATH} must be an object`);
+	}
+	const config = policy as { allow?: unknown; deny?: unknown };
+	return {
+		allow: parseDomainEntries(config.allow, "allow"),
+		deny: parseDomainEntries(config.deny, "deny"),
+	};
+}
+
+function parseDomainEntries(value: unknown, field: "allow" | "deny"): string[] {
+	if (value === undefined || value === null) return [];
+	if (!Array.isArray(value)) {
+		throw new Error(`fetchContent.domainPolicy.${field} in ${WEB_SEARCH_CONFIG_PATH} must be an array of hostnames`);
+	}
+	return value.map((entry, index) => {
+		if (typeof entry !== "string") {
+			throw new Error(`fetchContent.domainPolicy.${field} in ${WEB_SEARCH_CONFIG_PATH} must contain only hostnames; entry ${index + 1} is ${typeof entry}`);
+		}
+		const hostname = normalizeDomainEntry(entry);
+		if (!hostname) {
+			throw new Error(`fetchContent.domainPolicy.${field} in ${WEB_SEARCH_CONFIG_PATH} contains an invalid hostname: ${JSON.stringify(entry)}`);
+		}
+		return hostname;
+	});
+}
+
+function normalizeDomainEntry(entry: string): string | null {
+	const hostname = normalizeHostname(entry.trim());
+	if (!hostname || /\s|[\\/?:#@]/.test(hostname)) return null;
+	if (net.isIP(hostname)) return hostname;
+	if (hostname.length > 253 || !/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(hostname)) return null;
+	return hostname;
+}
+
 export function loadSsrfConfig(): SsrfConfig {
 	if (!existsSync(WEB_SEARCH_CONFIG_PATH)) return { allowRanges: [], trustEnvProxy: false };
 	let raw: string;
@@ -60,6 +127,8 @@ export function loadSsrfConfig(): SsrfConfig {
 
 interface ValidationOptions {
 	lookup?: Lookup;
+	/** Optional hostname policy for fetch_content target URLs. */
+	domainPolicy?: DomainPolicy;
 	/**
 	 * CIDR ranges (e.g. "198.18.0.0/15") to exempt from the SSRF guard.
 	 * Useful when a host runs a TUN/fake-IP proxy (Surge, Clash, Mihomo, ...)
@@ -104,6 +173,7 @@ export async function validateRemoteUrl(rawUrl: string | URL, options: Validatio
 	}
 
 	const allowRanges = parseAllowRanges(options.allowRanges);
+	assertDomainPolicy(hostname, options.domainPolicy);
 
 	if (net.isIP(hostname)) {
 		assertPublicAddress(hostname, hostname, allowRanges);
@@ -157,6 +227,20 @@ export async function fetchRemoteUrl(
 
 function normalizeHostname(hostname: string): string {
 	return hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
+}
+
+function assertDomainPolicy(hostname: string, policy?: DomainPolicy): void {
+	if (!policy) return;
+	if (policy.deny.some((entry) => domainMatches(hostname, entry))) {
+		throw new Error(`Blocked hostname by fetch_content domain policy: ${hostname}`);
+	}
+	if (policy.allow.length > 0 && !policy.allow.some((entry) => domainMatches(hostname, entry))) {
+		throw new Error(`Hostname not allowed by fetch_content domain policy: ${hostname}`);
+	}
+}
+
+function domainMatches(hostname: string, entry: string): boolean {
+	return hostname === entry || hostname.endsWith(`.${entry}`);
 }
 
 function getProxyForProtocol(protocol: string): string {

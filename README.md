@@ -313,6 +313,12 @@ Config defaults to `~/.pi/web-search.json`, or `web-search.json` under `PI_CODIN
     "preferredModel": "gemini-3-flash-preview",
     "maxSizeMB": 50
   },
+  "fetchContent": {
+    "domainPolicy": {
+      "allow": ["example.com"],
+      "deny": ["blocked.example.com"]
+    }
+  },
   "shortcuts": {
     "curate": "ctrl+shift+s",
     "activity": "ctrl+shift+w"
@@ -338,6 +344,8 @@ All provider API-key fields (`openaiApiKey`, `braveApiKey`, `parallelApiKey`, `t
 This syntax applies to provider credentials only; other configuration fields are not interpolated. `firecrawlApiKey` uses the same credential-source rules, while `firecrawlBaseUrl`, `firecrawlApiVersion`, and `firecrawlFreshScrape` are literal config values.
 
 A command source is not run while the extension loads or registers tools. Each selected provider request runs it again with a five-second timeout, a 16 KiB output limit, a minimized environment, and a one-line non-empty stdout requirement. Command text and stderr are omitted from errors. These commands are trusted local configuration, not a same-user process isolation boundary; use absolute executable paths and protect the config file. `OP_SESSION_*` variables are forwarded to trusted resolver commands so shell-local 1Password sessions can be reused without storing them in config. An explicit source overrides legacy provider environment variables and fails that provider locally rather than falling back with a stale credential. Direct Google Gemini API requests send the resolved key only in the `x-goog-api-key` header, never in the URL.
+
+`fetchContent.domainPolicy` is an optional hostname allow/deny policy for `fetch_content` target URLs. It is off when omitted. Each bare hostname matches itself and its subdomains; `deny` wins when a hostname matches both lists. The policy is checked before HTTP(S) target handling and before each redirect followed by this extension's own fetch path. Local file paths and non-HTTP sources are not subject to this policy. It is an additional restriction: the existing SSRF guard still blocks private and internal destinations. Remote extraction services can still perform their own DNS, redirects, and egress after this extension preflights the submitted target URL, so keep their deployments separately isolated.
 
 Set `searxngBaseUrl` or `SEARXNG_BASE_URL` to use a self-hosted SearXNG JSON API. A configured endpoint is preferred first in `auto` mode for local/private search. Its base URL and redirects remain subject to the SSRF guard; add only the narrowest self-hosted range to `ssrf.allowRanges` when it resolves to a private or synthetic range. Thanks to Marcos A. Núñez (@marnunez) for PR #107 and Avinash Kanaujiya (@avinashkanaujiya) for issue #105.
 
