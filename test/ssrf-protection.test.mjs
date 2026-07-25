@@ -220,3 +220,107 @@ test("allowRanges flows through fetchRemoteUrl and its redirect targets", async 
 	assert.equal(response.status, 200);
 	assert.deepEqual(requested, ["https://example.com/", "http://198.18.0.99/admin"]);
 });
+
+test("trustEnvProxy skips hostname DNS only for a configured proxy", async () => {
+	const previous = {
+		HTTP_PROXY: process.env.HTTP_PROXY,
+		http_proxy: process.env.http_proxy,
+		HTTPS_PROXY: process.env.HTTPS_PROXY,
+		https_proxy: process.env.https_proxy,
+		ALL_PROXY: process.env.ALL_PROXY,
+		all_proxy: process.env.all_proxy,
+		NO_PROXY: process.env.NO_PROXY,
+		no_proxy: process.env.no_proxy,
+	};
+	try {
+		for (const key of Object.keys(previous)) delete process.env[key];
+		process.env.HTTPS_PROXY = "http://proxy.example.test:8080";
+		let lookups = 0;
+		const lookup = async () => {
+			lookups++;
+			throw new Error("DNS should not run for proxied host");
+		};
+
+		await validateRemoteUrl("https://public.example.test/", { trustEnvProxy: true, lookup });
+		assert.equal(lookups, 0);
+
+		await assert.rejects(
+			validateRemoteUrl("https://127.0.0.1/", { trustEnvProxy: true, lookup }),
+			/Blocked internal address/,
+		);
+		await assert.rejects(
+			validateRemoteUrl("https://localhost/", { trustEnvProxy: true, lookup }),
+			/Blocked internal hostname/,
+		);
+	} finally {
+		for (const [key, value] of Object.entries(previous)) {
+			if (value === undefined) delete process.env[key];
+			else process.env[key] = value;
+		}
+	}
+});
+
+test("trustEnvProxy ignores invalid proxy environment values", async () => {
+	const previous = {
+		HTTP_PROXY: process.env.HTTP_PROXY,
+		http_proxy: process.env.http_proxy,
+		HTTPS_PROXY: process.env.HTTPS_PROXY,
+		https_proxy: process.env.https_proxy,
+		ALL_PROXY: process.env.ALL_PROXY,
+		all_proxy: process.env.all_proxy,
+		NO_PROXY: process.env.NO_PROXY,
+		no_proxy: process.env.no_proxy,
+	};
+	try {
+		for (const key of Object.keys(previous)) delete process.env[key];
+		for (const value of ["garbage", "file:///tmp/proxy", "   "]) {
+			process.env.HTTPS_PROXY = value;
+			let lookups = 0;
+			const url = await validateRemoteUrl("https://public.example.test/", {
+				trustEnvProxy: true,
+				lookup: async () => {
+					lookups++;
+					return [{ address: "93.184.216.34", family: 4 }];
+				},
+			});
+			assert.equal(url.hostname, "public.example.test");
+			assert.equal(lookups, 1);
+		}
+	} finally {
+		for (const [key, value] of Object.entries(previous)) {
+			if (value === undefined) delete process.env[key];
+			else process.env[key] = value;
+		}
+	}
+});
+
+test("trustEnvProxy still performs DNS for NO_PROXY hosts", async () => {
+	const previous = {
+		HTTPS_PROXY: process.env.HTTPS_PROXY,
+		NO_PROXY: process.env.NO_PROXY,
+	};
+	try {
+		process.env.HTTPS_PROXY = "http://proxy.example.test:8080";
+		process.env.NO_PROXY = "public.example.test:443, .internal.example.test";
+		let lookups = 0;
+		const lookup = async () => {
+			lookups++;
+			return [{ address: "93.184.216.34", family: 4 }];
+		};
+
+		await validateRemoteUrl("https://public.example.test/", { trustEnvProxy: true, lookup });
+		await validateRemoteUrl("https://api.internal.example.test/", { trustEnvProxy: true, lookup });
+		assert.equal(lookups, 2);
+
+		await validateRemoteUrl("https://public.example.test:8443/", { trustEnvProxy: true, lookup });
+		assert.equal(lookups, 2);
+
+		await validateRemoteUrl("https://other.example.test/", { trustEnvProxy: true, lookup });
+		assert.equal(lookups, 2);
+	} finally {
+		for (const [key, value] of Object.entries(previous)) {
+			if (value === undefined) delete process.env[key];
+			else process.env[key] = value;
+		}
+	}
+});

@@ -34,6 +34,31 @@ function runLoad(env) {
 	return JSON.parse(child.stdout);
 }
 
+function runLoadConfig(env) {
+	const childEnv = { ...process.env };
+	delete childEnv.PI_CODING_AGENT_DIR;
+	delete childEnv.XDG_CONFIG_HOME;
+	for (const [key, value] of Object.entries(env)) {
+		if (value === undefined) delete childEnv[key];
+		else childEnv[key] = value;
+	}
+	const script = `
+		const { loadSsrfConfig } = await import(${JSON.stringify(extractUrl)});
+		try {
+			console.log(JSON.stringify({ ok: true, config: loadSsrfConfig() }));
+		} catch (err) {
+			console.log(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) }));
+		}
+	`;
+	const child = spawnSync(process.execPath, ["--input-type=module"], {
+		input: script,
+		encoding: "utf8",
+		env: childEnv,
+	});
+	assert.equal(child.status, 0, child.stderr);
+	return JSON.parse(child.stdout);
+}
+
 async function makeConfigDir(prefix) {
 	const root = await mkdtemp(join(tmpdir(), prefix));
 	const agentDir = join(root, "agent-dir");
@@ -48,6 +73,33 @@ function envFor(root, agentDir) {
 		USERPROFILE: join(root, "home"),
 	};
 }
+
+test("loadSsrfConfig defaults trustEnvProxy to false", async () => {
+	const { root, agentDir, configPath } = await makeConfigDir("pi-ssrf-proxy-default-");
+	await writeFile(configPath, JSON.stringify({ ssrf: { allowRanges: ["198.18.0.0/15"] } }), "utf8");
+
+	const result = runLoadConfig(envFor(root, agentDir));
+	assert.equal(result.ok, true, result.error);
+	assert.deepEqual(result.config, { allowRanges: ["198.18.0.0/15"], trustEnvProxy: false });
+});
+
+test("loadSsrfConfig accepts an explicit trustEnvProxy opt-in", async () => {
+	const { root, agentDir, configPath } = await makeConfigDir("pi-ssrf-proxy-enabled-");
+	await writeFile(configPath, JSON.stringify({ ssrf: { trustEnvProxy: true } }), "utf8");
+
+	const result = runLoadConfig(envFor(root, agentDir));
+	assert.equal(result.ok, true, result.error);
+	assert.deepEqual(result.config, { allowRanges: [], trustEnvProxy: true });
+});
+
+test("loadSsrfConfig rejects a non-boolean trustEnvProxy value", async () => {
+	const { root, agentDir, configPath } = await makeConfigDir("pi-ssrf-proxy-invalid-");
+	await writeFile(configPath, JSON.stringify({ ssrf: { trustEnvProxy: "yes" } }), "utf8");
+
+	const result = runLoadConfig(envFor(root, agentDir));
+	assert.equal(result.ok, false);
+	assert.match(result.error, /ssrf\.trustEnvProxy in .* must be a boolean/);
+});
 
 test("loadSsrfAllowRanges throws when ssrf.allowRanges is not an array", async () => {
 	// Regression: a mistyped non-array value (bare string, object, number) must
