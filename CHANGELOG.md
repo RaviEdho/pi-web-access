@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 - Returned fetched URL content from `get_search_content` in bounded slices with explicit `offset`/`limit` continuation metadata, preventing large stored pages from overflowing the next model request. Thanks @manfredlift for reporting #112.
+- Kept oversized local videos recognizable for ffmpeg frame/timestamp extraction while preserving the Gemini analysis upload size limit. Thanks @Xandaar for reporting #135.
 - Added a focused SSRF error hint for TUN/fake-IP `198.18.0.0/15` addresses that points users to the existing `ssrf.allowRanges` opt-in. Thanks Aaron (@BenjaminAaron196) for PR #141 and AstroHan (@Astro-Han) for reporting #134.
 - Registered the web activity widget as a Pi component factory instead of passing a `Text` instance directly. Thanks Trey Hoover (@treyhoover) for PR #132.
 

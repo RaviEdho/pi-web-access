@@ -41,6 +41,8 @@ interface VideoFileInfo {
 	absolutePath: string;
 	mimeType: string;
 	sizeBytes: number;
+	maxSizeBytes: number;
+	withinUploadLimit: boolean;
 }
 
 interface VideoConfig {
@@ -129,9 +131,13 @@ export function isVideoFile(input: string): VideoFileInfo | null {
 	if (!stat.isFile()) return null;
 
 	const maxBytes = config.maxSizeMB * 1024 * 1024;
-	if (stat.size > maxBytes) return null;
-
-	return { absolutePath, mimeType, sizeBytes: stat.size };
+	return {
+		absolutePath,
+		mimeType,
+		sizeBytes: stat.size,
+		maxSizeBytes: maxBytes,
+		withinUploadLimit: stat.size <= maxBytes,
+	};
 }
 
 function resolveFilePath(filePath: string): string | null {
@@ -164,6 +170,12 @@ export async function extractVideo(
 	const effectivePrompt = options?.prompt ?? DEFAULT_VIDEO_PROMPT;
 	const effectiveModel = options?.model ?? config.preferredModel;
 	const displayName = basename(info.absolutePath);
+	if (!info.withinUploadLimit) {
+		const sizeMB = (info.sizeBytes / 1024 / 1024).toFixed(1);
+		const maxSizeMB = (info.maxSizeBytes / 1024 / 1024).toFixed(1);
+		const error = `Local video ${displayName} is ${sizeMB} MiB, above configured video.maxSizeMB (${maxSizeMB} MiB) for Gemini analysis. Use timestamp/frames for ffmpeg frame extraction, increase video.maxSizeMB, or compress the file.`;
+		return { url: info.absolutePath, title: displayName, content: error, error };
+	}
 	const activityId = activityMonitor.logStart({ type: "fetch", url: `video:${displayName}` });
 
 	const result = await tryVideoGeminiApi(info, effectivePrompt, effectiveModel, signal)
