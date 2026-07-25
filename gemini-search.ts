@@ -1,7 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { activityMonitor } from "./activity.ts";
-import { getApiKey, getVersionedApiBase, buildKeyParam, buildAuthHeaders, isGatewayConfigured } from "./gemini-api.ts";
+import { CredentialResolutionError, redactCredential } from "./credential-source.ts";
+import { getApiKey, getVersionedApiBase, fetchGeminiApi, isGatewayConfigured } from "./gemini-api.ts";
 import { isGeminiWebAvailable, queryWithCookies } from "./gemini-web.ts";
 import { isPerplexityAvailable, searchWithPerplexity, type SearchResult, type SearchResponse, type SearchOptions } from "./perplexity.ts";
 import { hasExaApiKey, isExaAvailable, searchWithExa } from "./exa.ts";
@@ -99,7 +100,7 @@ async function searchWithGemini(
 		const apiResult = await searchWithGeminiApi(query, options);
 		if (apiResult) return apiResult;
 	} catch (err) {
-		if (isAbortError(err)) throw err;
+		if (err instanceof CredentialResolutionError || isAbortError(err)) throw err;
 		errors.push(`Gemini API: ${errorMessage(err)}`);
 	}
 
@@ -152,7 +153,7 @@ export async function search(query: string, options: FullSearchOptions = {}): Pr
 		if (result) return { ...result, provider: "gemini" };
 		throw new Error(
 			"Gemini search unavailable. Either:\n" +
-			`  1. Set GEMINI_API_KEY in ${CONFIG_PATH}\n` +
+			`  1. Configure geminiApiKey in ${CONFIG_PATH} or set GEMINI_API_KEY\n` +
 			"  2. Set GOOGLE_GEMINI_BASE_URL + CLOUDFLARE_API_KEY for Cloudflare AI Gateway routing\n" +
 			"  3. Sign into gemini.google.com in a supported Chromium-based browser"
 		);
@@ -193,7 +194,7 @@ export async function search(query: string, options: FullSearchOptions = {}): Pr
 			const result = await searchWithExa(query, options);
 			if (result) return { ...result, provider: "exa" };
 		} catch (err) {
-			if (isAbortError(err)) throw err;
+			if (err instanceof CredentialResolutionError || isAbortError(err)) throw err;
 			fallbackErrors.push(`Exa: ${errorMessage(err)}`);
 		}
 	}
@@ -261,7 +262,11 @@ export async function search(query: string, options: FullSearchOptions = {}): Pr
 }
 
 async function searchWithGeminiApi(query: string, options: SearchOptions = {}): Promise<SearchResponse | null> {
-	const apiKey = getApiKey();
+	const requestSignal = AbortSignal.any([
+		AbortSignal.timeout(60000),
+		...(options.signal ? [options.signal] : []),
+	]);
+	const apiKey = await getApiKey(requestSignal);
 	if (!apiKey && !isGatewayConfigured()) return null;
 
 	const activityId = activityMonitor.logStart({ type: "api", query });
@@ -273,18 +278,15 @@ async function searchWithGeminiApi(query: string, options: SearchOptions = {}): 
 			tools: [{ google_search: {} }],
 		};
 
-		const res = await fetch(`${getVersionedApiBase()}/models/${model}:generateContent${buildKeyParam(apiKey)}`, {
+		const res = await fetchGeminiApi(`${getVersionedApiBase()}/models/${model}:generateContent`, {
 			method: "POST",
-			headers: { "Content-Type": "application/json", ...buildAuthHeaders() },
+			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify(body),
-			signal: AbortSignal.any([
-				AbortSignal.timeout(60000),
-				...(options.signal ? [options.signal] : []),
-			]),
-		});
+			signal: requestSignal,
+		}, apiKey);
 
 		if (!res.ok) {
-			const errorText = await res.text();
+			const errorText = redactCredential(await res.text(), apiKey);
 			throw new Error(`Gemini API error ${res.status}: ${errorText.slice(0, 300)}`);
 		}
 

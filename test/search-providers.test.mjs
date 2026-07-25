@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtemp } from "node:fs/promises";
+import { chmod, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -215,6 +215,140 @@ test("Exa direct API key ignores full legacy usage counter", async () => {
 	assert.equal(output.usage.count, 1000);
 });
 
+test("Exa command source is lazy, overrides stale env, and rotates per request", async () => {
+	const home = await mkdtemp(join(tmpdir(), "pi-web-access-exa-command-"));
+	const commandPath = join(home, "read-key.sh");
+	const counterPath = join(home, "counter");
+	await writeFile(commandPath, `#!/bin/sh\ncount=0\n[ ! -f "$1" ] || count=$(cat "$1")\ncount=$((count + 1))\nprintf '%s' "$count" >"$1"\nprintf 'synthetic-exa-%s\\n' "$count"\n`, "utf8");
+	await chmod(commandPath, 0o700);
+	await writeFile(join(home, "web-search.json"), JSON.stringify({
+		exaApiKey: `!${commandPath} ${counterPath}`,
+	}) + "\n", "utf8");
+
+	const child = runChild(`
+		import { existsSync } from "node:fs";
+		const keys = [];
+		globalThis.fetch = async (_url, init) => {
+			keys.push(init.headers["x-api-key"]);
+			return new Response(JSON.stringify({ answer: "ok", citations: [] }), {
+				status: 200,
+				headers: { "content-type": "application/json" },
+			});
+		};
+		const { hasExaApiKey, searchWithExa } = await import(${JSON.stringify(exaModuleUrl)});
+		const available = hasExaApiKey();
+		const lazy = !existsSync(${JSON.stringify(counterPath)});
+		await searchWithExa("first");
+		await searchWithExa("second");
+		console.log(JSON.stringify({ available, lazy, keys }));
+	`, {
+		HOME: home,
+		USERPROFILE: home,
+		PI_CODING_AGENT_DIR: home,
+		EXA_API_KEY: "stale-exa-environment-value",
+	});
+
+	assert.equal(child.status, 0, child.stderr);
+	assert.deepEqual(JSON.parse(child.stdout.trim()), {
+		available: true,
+		lazy: true,
+		keys: ["synthetic-exa-1", "synthetic-exa-2"],
+	});
+});
+
+test("failed Exa command source is redacted and blocks MCP or provider fallback", async () => {
+	const home = await mkdtemp(join(tmpdir(), "pi-web-access-exa-command-failure-"));
+	const commandPath = join(home, "fail-key.sh");
+	await writeFile(commandPath, "#!/bin/sh\nprintf 'SYNTHETIC_SECRET_MUST_NOT_ESCAPE\\n' >&2\nexit 9\n", "utf8");
+	await chmod(commandPath, 0o700);
+	await writeFile(join(home, "web-search.json"), JSON.stringify({
+		exaApiKey: `!${commandPath}`,
+	}) + "\n", "utf8");
+
+	const child = runChild(`
+		let fetchCalls = 0;
+		globalThis.fetch = async () => { fetchCalls += 1; throw new Error("unexpected fetch"); };
+		const { search } = await import(${JSON.stringify(searchModuleUrl)});
+		let message = "";
+		try {
+			await search("must fail closed", { provider: "auto" });
+		} catch (error) {
+			message = error.message;
+		}
+		console.log(JSON.stringify({ fetchCalls, message }));
+	`, {
+		HOME: home,
+		USERPROFILE: home,
+		PI_CODING_AGENT_DIR: home,
+		EXA_API_KEY: "stale-exa-environment-value",
+		TAVILY_API_KEY: "stale-alternate-provider-value",
+	});
+
+	assert.equal(child.status, 0, child.stderr);
+	const output = JSON.parse(child.stdout.trim());
+	assert.equal(output.fetchCalls, 0);
+	assert.match(output.message, /^Exa credential resolution failed: command-failed$/);
+	assert.equal(output.message.includes("SYNTHETIC_SECRET_MUST_NOT_ESCAPE"), false);
+	assert.equal(output.message.includes(commandPath), false);
+});
+
+test("Exa provider errors redact the resolved credential", async () => {
+	const home = await mkdtemp(join(tmpdir(), "pi-web-access-exa-redaction-"));
+	const secret = "SYNTHETIC_EXA_SECRET_MUST_NOT_ESCAPE";
+	const child = runChild(`
+		globalThis.fetch = async () => new Response(${JSON.stringify("provider echoed SYNTHETIC_EXA_SECRET_MUST_NOT_ESCAPE")}, { status: 400 });
+		const { searchWithExa } = await import(${JSON.stringify(exaModuleUrl)});
+		let message = "";
+		try { await searchWithExa("redaction test"); }
+		catch (error) { message = error.message; }
+		console.log(JSON.stringify({ message }));
+	`, {
+		HOME: home,
+		USERPROFILE: home,
+		PI_CODING_AGENT_DIR: home,
+		EXA_API_KEY: secret,
+	});
+	assert.equal(child.status, 0, child.stderr);
+	const { message } = JSON.parse(child.stdout.trim());
+	assert.equal(message.includes(secret), false);
+	assert.equal(message.includes("[redacted]"), true);
+});
+
+test("failed Gemini command source is redacted and blocks browser fallback", async () => {
+	const home = await mkdtemp(join(tmpdir(), "pi-web-access-gemini-command-failure-"));
+	const commandPath = join(home, "fail-key.sh");
+	await writeFile(commandPath, "#!/bin/sh\nprintf 'SYNTHETIC_GEMINI_SECRET_MUST_NOT_ESCAPE\\n' >&2\nexit 9\n", "utf8");
+	await chmod(commandPath, 0o700);
+	await writeFile(join(home, "web-search.json"), JSON.stringify({
+		geminiApiKey: `!${commandPath}`,
+	}) + "\n", "utf8");
+
+	const child = runChild(`
+		let fetchCalls = 0;
+		globalThis.fetch = async () => { fetchCalls += 1; throw new Error("unexpected fetch"); };
+		const { search } = await import(${JSON.stringify(searchModuleUrl)});
+		let message = "";
+		try {
+			await search("must fail closed", { provider: "gemini" });
+		} catch (error) {
+			message = error.message;
+		}
+		console.log(JSON.stringify({ fetchCalls, message }));
+	`, {
+		HOME: home,
+		USERPROFILE: home,
+		PI_CODING_AGENT_DIR: home,
+		GEMINI_API_KEY: "stale-gemini-environment-value",
+	});
+
+	assert.equal(child.status, 0, child.stderr);
+	const output = JSON.parse(child.stdout.trim());
+	assert.equal(output.fetchCalls, 0);
+	assert.match(output.message, /^Gemini credential resolution failed: command-failed$/);
+	assert.equal(output.message.includes("SYNTHETIC_GEMINI_SECRET_MUST_NOT_ESCAPE"), false);
+	assert.equal(output.message.includes(commandPath), false);
+});
+
 test("OpenAI search requires web_search and maps domain filters", async () => {
 	const home = await mkdtemp(join(tmpdir(), "pi-web-access-openai-"));
 	const child = runChild(`
@@ -289,9 +423,11 @@ test("Gemini API search uses its search-only default model", async () => {
 	const child = runChild(`
 		let capturedUrl = "";
 		let capturedBody = null;
+		let capturedHeaders = null;
 		globalThis.fetch = async (url, init) => {
 			capturedUrl = String(url);
 			capturedBody = JSON.parse(init.body);
+			capturedHeaders = Object.fromEntries(new Headers(init.headers).entries());
 			return new Response(JSON.stringify({
 				candidates: [{ content: { parts: [{ text: "Gemini answer" }] } }],
 			}), { status: 200, headers: { "content-type": "application/json" } });
@@ -299,7 +435,7 @@ test("Gemini API search uses its search-only default model", async () => {
 
 		const { search } = await import(${JSON.stringify(searchModuleUrl)});
 		const result = await search("latest TypeScript version", { provider: "gemini" });
-		console.log(JSON.stringify({ capturedUrl, capturedBody, provider: result.provider }));
+		console.log(JSON.stringify({ capturedUrl, capturedBody, capturedHeaders, provider: result.provider }));
 	`, {
 		HOME: home,
 		USERPROFILE: home,
@@ -309,7 +445,8 @@ test("Gemini API search uses its search-only default model", async () => {
 
 	assert.equal(child.status, 0, child.stderr);
 	const output = JSON.parse(child.stdout.trim());
-	assert.equal(output.capturedUrl, "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=gemini-test-key");
+	assert.equal(output.capturedUrl, "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent");
+	assert.equal(output.capturedHeaders["x-goog-api-key"], "gemini-test-key");
 	assert.deepEqual(output.capturedBody.tools, [{ google_search: {} }]);
 	assert.equal(output.provider, "gemini");
 });
@@ -321,8 +458,10 @@ test("Gemini API search preserves the configured searchModel", async () => {
 		await writeFile(process.env.PI_CODING_AGENT_DIR + "/web-search.json", JSON.stringify({ searchModel: "custom-gemini-model" }));
 
 		let capturedUrl = "";
+		let capturedHeaders = null;
 		globalThis.fetch = async (url, init) => {
 			capturedUrl = String(url);
+			capturedHeaders = Object.fromEntries(new Headers(init.headers).entries());
 			return new Response(JSON.stringify({
 				candidates: [{ content: { parts: [{ text: "Gemini answer" }] } }],
 			}), { status: 200, headers: { "content-type": "application/json" } });
@@ -330,7 +469,7 @@ test("Gemini API search preserves the configured searchModel", async () => {
 
 		const { search } = await import(${JSON.stringify(searchModuleUrl)});
 		await search("configured model", { provider: "gemini" });
-		console.log(capturedUrl);
+		console.log(JSON.stringify({ capturedUrl, capturedHeaders }));
 	`, {
 		HOME: home,
 		USERPROFILE: home,
@@ -339,5 +478,7 @@ test("Gemini API search preserves the configured searchModel", async () => {
 	});
 
 	assert.equal(child.status, 0, child.stderr);
-	assert.equal(child.stdout.trim(), "https://generativelanguage.googleapis.com/v1beta/models/custom-gemini-model:generateContent?key=gemini-test-key");
+	const output = JSON.parse(child.stdout.trim());
+	assert.equal(output.capturedUrl, "https://generativelanguage.googleapis.com/v1beta/models/custom-gemini-model:generateContent");
+	assert.equal(output.capturedHeaders["x-goog-api-key"], "gemini-test-key");
 });
