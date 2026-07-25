@@ -83,6 +83,48 @@ test("loadSsrfConfig defaults trustEnvProxy to false", async () => {
 	assert.deepEqual(result.config, { allowRanges: ["198.18.0.0/15"], trustEnvProxy: false });
 });
 
+test("loadFetchContentDomainPolicy reads normalized allow and deny hostnames", async () => {
+	const { root, agentDir, configPath } = await makeConfigDir("pi-domain-policy-valid-");
+	await writeFile(configPath, JSON.stringify({ fetchContent: { domainPolicy: { allow: [" Example.COM. "], deny: ["blocked.example.com"] } } }), "utf8");
+
+	const childEnv = envFor(root, agentDir);
+	const child = spawnSync(process.execPath, ["--input-type=module"], {
+		input: `
+			const { loadFetchContentDomainPolicy } = await import(${JSON.stringify(extractUrl.replace("/extract.ts", "/ssrf-protection.ts"))});
+			console.log(JSON.stringify(loadFetchContentDomainPolicy()));
+		`,
+		encoding: "utf8",
+		env: childEnv,
+	});
+	assert.equal(child.status, 0, child.stderr);
+	assert.deepEqual(JSON.parse(child.stdout), { allow: ["example.com"], deny: ["blocked.example.com"] });
+});
+
+test("loadFetchContentDomainPolicy rejects malformed policy values", async () => {
+	for (const domainPolicy of [
+		{ allow: "example.com" },
+		{ deny: ["*.example.com"] },
+		{ allow: ["example.com", 42] },
+	]) {
+		const { root, agentDir, configPath } = await makeConfigDir("pi-domain-policy-invalid-");
+		await writeFile(configPath, JSON.stringify({ fetchContent: { domainPolicy } }), "utf8");
+		const childEnv = envFor(root, agentDir);
+		const child = spawnSync(process.execPath, ["--input-type=module"], {
+			input: `
+				const { loadFetchContentDomainPolicy } = await import(${JSON.stringify(extractUrl.replace("/extract.ts", "/ssrf-protection.ts"))});
+				try { loadFetchContentDomainPolicy(); console.log(JSON.stringify({ ok: true })); }
+				catch (err) { console.log(JSON.stringify({ ok: false, error: err.message })); }
+			`,
+			encoding: "utf8",
+			env: childEnv,
+		});
+		assert.equal(child.status, 0, child.stderr);
+		const result = JSON.parse(child.stdout);
+		assert.equal(result.ok, false, JSON.stringify(domainPolicy));
+		assert.match(result.error, /fetchContent\.domainPolicy\.(allow|deny)/);
+	}
+});
+
 test("loadSsrfConfig accepts an explicit trustEnvProxy opt-in", async () => {
 	const { root, agentDir, configPath } = await makeConfigDir("pi-ssrf-proxy-enabled-");
 	await writeFile(configPath, JSON.stringify({ ssrf: { trustEnvProxy: true } }), "utf8");

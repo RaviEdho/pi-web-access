@@ -12,7 +12,7 @@ import { extractWithUrlContext, extractWithGeminiWeb } from "./gemini-url-contex
 import { extractWithParallel, isParallelAvailable } from "./parallel.ts";
 import { extractWithFirecrawl, isFirecrawlAvailable } from "./firecrawl.ts";
 import { isVideoFile, extractVideo, extractVideoFrame, getLocalVideoDuration } from "./video-extract.ts";
-import { fetchRemoteUrl, loadSsrfConfig, validateRemoteUrl, type Lookup } from "./ssrf-protection.ts";
+import { fetchRemoteUrl, loadFetchContentDomainPolicy, loadSsrfConfig, validateRemoteUrl, type Lookup } from "./ssrf-protection.ts";
 import { formatSeconds, getWebSearchConfigPath } from "./utils.ts";
 
 const DEFAULT_TIMEOUT_MS = 30000;
@@ -95,7 +95,13 @@ async function extractWithJinaReader(
 
 	try {
 		const ssrf = loadSsrfConfig();
-		await validateRemoteUrl(url, { allowRanges: ssrf.allowRanges, trustEnvProxy: ssrf.trustEnvProxy, ...(lookup ? { lookup } : {}) });
+		const domainPolicy = loadFetchContentDomainPolicy();
+		await validateRemoteUrl(url, {
+			allowRanges: ssrf.allowRanges,
+			trustEnvProxy: ssrf.trustEnvProxy,
+			domainPolicy,
+			...(lookup ? { lookup } : {}),
+		});
 		const res = await fetch(jinaUrl, {
 			headers: {
 				"Accept": "text/markdown",
@@ -228,6 +234,27 @@ export async function extractContent(
 ): Promise<ExtractedContent> {
 	if (signal?.aborted) {
 		return { url, title: "", content: "", error: "Aborted" };
+	}
+
+	let remoteUrl: URL | null = null;
+	try {
+		const parsed = new URL(url);
+		if (parsed.protocol === "http:" || parsed.protocol === "https:") remoteUrl = parsed;
+	} catch {
+	}
+	if (remoteUrl) {
+		try {
+			const ssrf = loadSsrfConfig();
+			const domainPolicy = loadFetchContentDomainPolicy();
+			await validateRemoteUrl(remoteUrl, {
+				allowRanges: ssrf.allowRanges,
+				trustEnvProxy: ssrf.trustEnvProxy,
+				domainPolicy,
+				...(options?.lookup ? { lookup: options.lookup } : {}),
+			});
+		} catch (err) {
+			return { url, title: "", content: "", error: errorMessage(err) };
+		}
 	}
 
 	if (options?.frames && !options.timestamp) {
@@ -380,15 +407,7 @@ export async function extractContent(
 	}
 
 	try {
-		const parsed = new URL(url);
-		if (parsed.protocol === "http:" || parsed.protocol === "https:") {
-			const ssrf = loadSsrfConfig();
-			await validateRemoteUrl(parsed, {
-				allowRanges: ssrf.allowRanges,
-				trustEnvProxy: ssrf.trustEnvProxy,
-				...(options?.lookup ? { lookup: options.lookup } : {}),
-			});
-		}
+		if (!remoteUrl) new URL(url);
 	} catch (err) {
 		return { url, title: "", content: "", error: errorMessage(err) };
 	}
@@ -542,6 +561,7 @@ async function extractViaHttp(
 
 	try {
 		const ssrf = loadSsrfConfig();
+		const domainPolicy = loadFetchContentDomainPolicy();
 		const response = await fetchRemoteUrl(
 			url,
 			{
@@ -561,6 +581,7 @@ async function extractViaHttp(
 			{
 				allowRanges: ssrf.allowRanges,
 				trustEnvProxy: ssrf.trustEnvProxy,
+				domainPolicy,
 				...(options?.lookup ? { lookup: options.lookup } : {}),
 			},
 		);
