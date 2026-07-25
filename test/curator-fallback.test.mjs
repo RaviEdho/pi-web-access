@@ -14,6 +14,19 @@ test("web_search curator auto-open failures keep the curator alive with a manual
 	assert.doesNotMatch(indexSrc, /Failed to open curator UI: \$\{message\}`\);\n\t\t\tif \(pendingCurates\.get\(callId\) === pc \|\| \(handle && activeCurators\.get\(callId\) === handle\)\) \{\n\t\t\t\tcloseCurator\(callId\);/);
 });
 
+test("curator fallback helper is visible to the browser-open catch block", () => {
+	const functionIndex = indexSrc.indexOf("async function openCuratorBrowser");
+	const declarationIndex = indexSrc.indexOf("const sendCuratorFallbackUpdate", functionIndex);
+	const tryIndex = indexSrc.indexOf("\n\t\ttry {\n\t\t\tpc.phase = \"curating\";", functionIndex);
+	const catchCallIndex = indexSrc.indexOf("sendCuratorFallbackUpdate(\"Search curator is running, but the browser did not open automatically.\")", tryIndex);
+
+	assert.ok(functionIndex >= 0);
+	assert.ok(declarationIndex > functionIndex);
+	assert.ok(tryIndex > declarationIndex, "fallback helper must be declared before the try block so catch can call it");
+	assert.ok(catchCallIndex > tryIndex);
+	assert.match(indexSrc.slice(declarationIndex, tryIndex), /if \(!handle\) return;/);
+});
+
 test("cancel diagnostics include curator URL and browser-open error", () => {
 	assert.match(indexSrc, /curatorUrl\?: string;/);
 	assert.match(indexSrc, /browserOpenError\?: string;/);
