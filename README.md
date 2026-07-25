@@ -40,7 +40,7 @@ Works immediately with no API keys — Exa MCP provides zero-config search. If P
 }
 ```
 
-In `auto` mode (default), `web_search` tries OpenAI when suitable and available, then Exa (direct API if keyed, MCP if not), Brave, Parallel, Tavily, Perplexity, Gemini API, then Gemini Web when browser-cookie access is enabled.
+In `auto` mode (default), `web_search` tries OpenAI when suitable and available, then Exa (direct API if keyed, MCP if not), Brave, Parallel, Tavily, Perplexity, Gemini API, then Gemini Web when browser-cookie access is enabled. Exa handles search; curator summary drafts are generated separately by the configured Pi summary model. Slow summary drafts fall back to a deterministic result summary after a bounded deadline.
 
 For sandboxed networks that provide outbound proxy transport through environment variables, set `ssrf.trustEnvProxy` to `true` to skip local DNS preflight for proxied hostnames:
 

@@ -1935,7 +1935,9 @@ const SCRIPT = `(function() {
           ? "Summarizing " + selLabel + " with " + summaryPendingModel + "…"
           : "Summarizing " + selLabel + "…";
       } else if (summaryMeta && summaryMeta.fallbackUsed) {
-        summarySubtitle.textContent = "Fallback summary of " + selLabel + ".";
+        var fallbackLabel = summaryMeta.phase === "deterministic-fallback" ? "Deterministic fallback summary" : "Fallback summary";
+        var fallbackReason = summaryMeta.fallbackReason ? " Reason: " + summaryMeta.fallbackReason + "." : "";
+        summarySubtitle.textContent = fallbackLabel + " of " + selLabel + "." + fallbackReason;
       } else {
         summarySubtitle.textContent = "Summary of " + selLabel + ". Edit directly, regenerate with feedback, or approve.";
       }
@@ -2826,6 +2828,7 @@ const SCRIPT = `(function() {
       tokenEstimate: typeof meta.tokenEstimate === "number" && Number.isFinite(meta.tokenEstimate) && meta.tokenEstimate >= 0 ? meta.tokenEstimate : 0,
       fallbackUsed: meta.fallbackUsed === true,
       fallbackReason: typeof meta.fallbackReason === "string" ? meta.fallbackReason : undefined,
+      phase: meta.phase === "summary-model" || meta.phase === "deterministic-fallback" ? meta.phase : undefined,
       edited: !!edited,
     };
   }

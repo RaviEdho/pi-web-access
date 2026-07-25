@@ -147,6 +147,9 @@ function normalizeSummaryMeta(value: unknown): SummaryMeta | null {
 	const fallbackReason = meta.fallbackReason;
 	if (fallbackReason !== undefined && typeof fallbackReason !== "string") return null;
 
+	const phase = meta.phase;
+	if (phase !== undefined && phase !== "summary-model" && phase !== "deterministic-fallback") return null;
+
 	const edited = meta.edited;
 	if (edited !== undefined && typeof edited !== "boolean") return null;
 
@@ -156,6 +159,7 @@ function normalizeSummaryMeta(value: unknown): SummaryMeta | null {
 		tokenEstimate,
 		fallbackUsed,
 		fallbackReason,
+		phase,
 		edited,
 	};
 }
