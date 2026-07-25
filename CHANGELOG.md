@@ -13,6 +13,8 @@ All notable changes to this project will be documented in this file.
 - Send direct Gemini API credentials in `x-goog-api-key` headers for generate, upload, status, and delete requests instead of URL query parameters.
 
 ### Fixed
+- Reworked opt-in Gemini Web browser-cookie extraction to scan non-default Chromium profiles, preflight required cookie names before Keychain/secret-tool access, and cache encryption passwords only in-process. Thanks Kevin Truong (@kevinQTruong) for the originating PR #14, Jessica Black (@jssblck) for reporting #9, János Veres (@jveres) for reporting #2, and RimuruW (@RimuruW) for reporting #15.
+- Added read-only `sqlite3` CLI and Python stdlib fallbacks when `node:sqlite` is unavailable, with sanitized actionable diagnostics instead of silently reporting Gemini Web as unavailable.
 - Bounded curator summary-model generation and returned a deterministic, phase-labeled fallback when a draft exceeds its deadline, while preserving caller cancellation and model-resolution errors. Thanks torn1147 (@torn1147) for reporting #43.
 - Updated the `librarian` skill to use verified, session-scoped clone paths returned by `fetch_content` instead of assuming `/tmp/pi-github-repos`, and to refetch missing clones. Thanks mcwalrus (@mcwalrus) for #136 and gravewhisper (@gravewhisper) for #23.
 - Used `gemini-2.5-flash` as the Gemini API grounded-search default while preserving configured `searchModel` values and the shared URL/video defaults. Thanks lajarre for reporting #11.

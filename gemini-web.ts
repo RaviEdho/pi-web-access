@@ -1,5 +1,5 @@
 import { basename } from "node:path";
-import { type CookieMap, getGoogleCookies } from "./chrome-cookies.ts";
+import { getLastGoogleCookieDiagnostic, type CookieMap, getGoogleCookies } from "./chrome-cookies.ts";
 import { getChromeProfileFromConfig, isBrowserCookieAccessAllowed, normalizeChromeProfile } from "./gemini-web-config.ts";
 
 const GEMINI_APP_URL = "https://gemini.google.com/app";
@@ -39,6 +39,10 @@ export async function isGeminiWebAvailable(chromeProfile?: string): Promise<Cook
 	});
 	if (!result) return null;
 	return result.cookies;
+}
+
+export function getGeminiWebAvailabilityDiagnostic(): string | null {
+	return isBrowserCookieAccessAllowed() ? getLastGoogleCookieDiagnostic() : null;
 }
 
 export async function getActiveGoogleEmail(cookies: CookieMap): Promise<string | null> {
