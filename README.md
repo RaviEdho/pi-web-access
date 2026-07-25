@@ -319,14 +319,18 @@ Config defaults to `~/.pi/web-search.json`, or `web-search.json` under `PI_CODIN
 }
 ```
 
-`exaApiKey` and `geminiApiKey` also accept explicit credential sources. Use `$NAME` or `${NAME}` to read one named environment variable, or prefix a trusted local shell command with `!` to resolve one value at provider request time:
+All provider API-key fields (`openaiApiKey`, `braveApiKey`, `parallelApiKey`, `tavilyApiKey`, `exaApiKey`, `perplexityApiKey`, `geminiApiKey`, and `cloudflareApiKey`) accept explicit credential sources. Use `$NAME` or `${NAME}` to read one named environment variable, or prefix a trusted local shell command with `!` to resolve one value at provider request time. Escape `$$` as a literal leading `$` and `$!` as a literal leading `!`:
 
 ```json
 {
-  "exaApiKey": "!/absolute/path/to/secret-manager read exa",
-  "geminiApiKey": "${SCOPED_GEMINI_API_KEY}"
+  "openaiApiKey": "!/absolute/path/to/secret-manager read openai",
+  "braveApiKey": "${SCOPED_BRAVE_API_KEY}",
+  "exaApiKey": "$$literal-key",
+  "geminiApiKey": "$!literal-command"
 }
 ```
+
+This syntax applies to provider credentials only; other configuration fields are not interpolated.
 
 A command source is not run while the extension loads or registers tools. Each selected provider request runs it again with a five-second timeout, a 16 KiB output limit, a minimized environment, and a one-line non-empty stdout requirement. Command text and stderr are omitted from errors. These commands are trusted local configuration, not a same-user process isolation boundary; use absolute executable paths and protect the config file. `OP_SESSION_*` variables are forwarded to trusted resolver commands so shell-local 1Password sessions can be reused without storing them in config. An explicit source overrides legacy provider environment variables and fails that provider locally rather than falling back with a stale credential. Direct Google Gemini API requests send the resolved key only in the `x-goog-api-key` header, never in the URL.
 

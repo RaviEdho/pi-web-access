@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { activityMonitor } from "./activity.ts";
 import type { ExtractedContent, ExtractOptions } from "./extract.ts";
 import type { SearchOptions, SearchResponse } from "./perplexity.ts";
+import { hasCredentialSource, redactCredential, resolveCredential } from "./credential-source.ts";
 import { getWebSearchConfigPath } from "./utils.ts";
 
 const PARALLEL_SEARCH_URL = "https://api.parallel.ai/v1/search";
@@ -83,18 +84,39 @@ function isPlaceholderApiKey(key: string): boolean {
 	return normalized.length < MIN_PARALLEL_API_KEY_LENGTH || PLACEHOLDER_API_KEY_DENYLIST.has(normalized.toLowerCase());
 }
 
-function resolveApiKey(): string | null {
+async function resolveApiKey(signal?: AbortSignal): Promise<string | null> {
+	const configKey = normalizeApiKey(loadConfig().parallelApiKey);
+	if (configKey?.startsWith("$") || configKey?.startsWith("!")) {
+		const resolved = await resolveCredential({
+			provider: "Parallel",
+			configuredValue: configKey,
+			environmentValue: process.env.PARALLEL_API_KEY,
+			signal,
+		});
+		return resolved && !isPlaceholderApiKey(resolved) ? resolved : null;
+	}
+
 	const envKey = normalizeApiKey(process.env.PARALLEL_API_KEY);
 	if (envKey && !isPlaceholderApiKey(envKey)) return envKey;
-
-	const configKey = normalizeApiKey(loadConfig().parallelApiKey);
 	if (configKey && !isPlaceholderApiKey(configKey)) return configKey;
-
 	return null;
 }
 
-function getApiKey(): string {
-	const key = resolveApiKey();
+function hasConfiguredApiKey(): boolean {
+	const configKey = normalizeApiKey(loadConfig().parallelApiKey);
+	if (configKey?.startsWith("$") || configKey?.startsWith("!")) {
+		return hasCredentialSource({
+			provider: "Parallel",
+			configuredValue: configKey,
+			environmentValue: process.env.PARALLEL_API_KEY,
+		});
+	}
+	const envKey = normalizeApiKey(process.env.PARALLEL_API_KEY);
+	return (envKey !== null && !isPlaceholderApiKey(envKey)) || (configKey !== null && !isPlaceholderApiKey(configKey));
+}
+
+async function getApiKey(signal?: AbortSignal): Promise<string> {
+	const key = await resolveApiKey(signal);
 	if (!key) {
 		throw new Error(
 			"Parallel API key not found. Either:\n" +
@@ -107,7 +129,7 @@ function getApiKey(): string {
 }
 
 export function hasParallelApiKey(): boolean {
-	return !!resolveApiKey();
+	return hasConfiguredApiKey();
 }
 
 export function isParallelAvailable(): boolean {
@@ -323,7 +345,7 @@ async function parallelFetch(
 	body: Record<string, unknown>,
 	signal?: AbortSignal,
 ): Promise<Record<string, unknown>> {
-	const apiKey = getApiKey();
+	const apiKey = await getApiKey(signal);
 	const activityId = activityMonitor.logStart(activityContext(url, body));
 	let response: Response;
 	try {
@@ -338,14 +360,18 @@ async function parallelFetch(
 		});
 	} catch (err) {
 		const message = errorMessage(err);
-		if (message.toLowerCase().includes("abort")) activityMonitor.logComplete(activityId, 0);
-		else activityMonitor.logError(activityId, message);
-		throw err;
+		const redactedMessage = redactCredential(message, apiKey);
+		if (redactedMessage.toLowerCase().includes("abort")) activityMonitor.logComplete(activityId, 0);
+		else activityMonitor.logError(activityId, redactedMessage);
+		if (redactedMessage === message) throw err;
+		const redactedError = new Error(redactedMessage);
+		if (err instanceof Error) redactedError.name = err.name;
+		throw redactedError;
 	}
 
 	if (!response.ok) {
 		activityMonitor.logComplete(activityId, response.status);
-		const errorText = await response.text();
+		const errorText = redactCredential(await response.text(), apiKey);
 		throw new Error(`Parallel API error ${response.status}: ${errorText.slice(0, 300)}`);
 	}
 

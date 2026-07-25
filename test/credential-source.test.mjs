@@ -102,6 +102,12 @@ test("command failures are categorized and redact command output", async () => {
 	}
 });
 
+test("escaped source prefixes remain literal and override legacy environment values", async () => {
+	assert.equal(await resolveCredential(options("$$OPENAI_API_KEY", "legacy-value")), "$OPENAI_API_KEY");
+	assert.equal(await resolveCredential(options("$!literal-command", "legacy-value")), "!literal-command");
+	assert.equal(hasCredentialSource(options("$$OPENAI_API_KEY", undefined)), true);
+});
+
 test("malformed explicit sources fail closed instead of becoming literals", async () => {
 	for (const source of ["!", "$BAD-NAME", "${UNCLOSED"]) {
 		await assert.rejects(

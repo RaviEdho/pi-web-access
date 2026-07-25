@@ -1,8 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { activityMonitor } from "./activity.ts";
-import { CredentialResolutionError, redactCredential } from "./credential-source.ts";
-import { getApiKey, getVersionedApiBase, fetchGeminiApi, isGatewayConfigured } from "./gemini-api.ts";
+import { CredentialResolutionError } from "./credential-source.ts";
+import { getApiKey, getVersionedApiBase, fetchGeminiApi, isGatewayConfigured, redactGeminiApiResponse } from "./gemini-api.ts";
 import { getGeminiWebAvailabilityDiagnostic, isGeminiWebAvailable, queryWithCookies } from "./gemini-web.ts";
 import { isPerplexityAvailable, searchWithPerplexity, type SearchResult, type SearchResponse, type SearchOptions } from "./perplexity.ts";
 import { hasExaApiKey, isExaAvailable, searchWithExa } from "./exa.ts";
@@ -288,7 +288,7 @@ async function searchWithGeminiApi(query: string, options: SearchOptions = {}): 
 		}, apiKey);
 
 		if (!res.ok) {
-			const errorText = redactCredential(await res.text(), apiKey);
+			const errorText = redactGeminiApiResponse(res, await res.text(), apiKey);
 			throw new Error(`Gemini API error ${res.status}: ${errorText.slice(0, 300)}`);
 		}
 

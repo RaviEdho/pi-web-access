@@ -103,8 +103,13 @@ function explicitEnvironmentName(source: string): string | null {
 	return match ? match[1] ?? match[2] : null;
 }
 
+function escapedSource(source: string): string | null {
+	if (source.startsWith("$$") || source.startsWith("$!")) return source.slice(1);
+	return null;
+}
+
 function isMalformedExplicitSource(source: string): boolean {
-	return source.startsWith("$") && explicitEnvironmentName(source) === null;
+	return source.startsWith("$") && escapedSource(source) === null && explicitEnvironmentName(source) === null;
 }
 
 async function defaultRunCommand(
@@ -141,6 +146,8 @@ export function hasCredentialSource(options: CredentialOptions): boolean {
 
 export async function resolveCredential(options: CredentialOptions): Promise<string | null> {
 	const source = configuredSource(options);
+	const escaped = source ? escapedSource(source) : null;
+	if (escaped !== null) return escaped;
 	if (source?.startsWith("!")) {
 		const command = source.slice(1).trim();
 		if (!command) throw new CredentialResolutionError(options.provider, "invalid-source");
