@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
+import initializeExtension from "../index.ts";
 
 const indexSrc = readFileSync(new URL("../index.ts", import.meta.url), "utf8");
 const readmeSrc = readFileSync(new URL("../README.md", import.meta.url), "utf8");
@@ -18,15 +19,31 @@ test("fetch tools remain registered outside the web_search gate", () => {
 	assert.match(indexSrc, /\n\t}\);\n\n\tpi\.registerTool\(\{\n\t\tname: "fetch_content"/);
 });
 
-test("web activity widget uses a supported component factory", () => {
-	assert.match(
-		indexSrc,
-		/ctx\.ui\.setWidget\("web-activity", \(\) => new Text\(lines\.join\("\\n"\), 0, 0\)\);/,
-	);
-	assert.doesNotMatch(
-		indexSrc,
-		/ctx\.ui\.setWidget\("web-activity", new Text/,
-	);
+test("web activity shortcut renders through the supported string-array API", async () => {
+	const shortcuts = [];
+	initializeExtension({
+		registerTool() {},
+		registerCommand() {},
+		registerShortcut(name, shortcut) { shortcuts.push({ name, shortcut }); },
+		on() {},
+	});
+
+	const activityShortcut = shortcuts.find(({ shortcut }) => shortcut.description === "Toggle web search activity");
+	assert.ok(activityShortcut, "activity shortcut was not registered");
+	const widgets = [];
+	const ctx = {
+		ui: {
+			theme: { fg: (_color, text) => text },
+			setWidget(key, content) { widgets.push({ key, content }); },
+		},
+	};
+
+	await activityShortcut.shortcut.handler(ctx);
+	assert.equal(widgets[0].key, "web-activity");
+	assert.ok(Array.isArray(widgets[0].content), "activity widget content must be a string array");
+	assert.ok(widgets[0].content.length > 0);
+
+	await activityShortcut.shortcut.handler(ctx);
 });
 
 test("README documents webSearch.enabled", () => {

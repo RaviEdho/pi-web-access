@@ -553,7 +553,7 @@ function updateWidget(ctx: ExtensionContext): void {
 			(resetMs > 0 ? theme.fg("dim", ` (resets in ${resetSec}s)`) : ""),
 	);
 
-	ctx.ui.setWidget("web-activity", () => new Text(lines.join("\n"), 0, 0));
+	ctx.ui.setWidget("web-activity", lines);
 }
 
 function formatEntryLine(
