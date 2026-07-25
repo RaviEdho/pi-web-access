@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file.
 - Send direct Gemini API credentials in `x-goog-api-key` headers for generate, upload, status, and delete requests instead of URL query parameters.
 
 ### Fixed
+- Bounded curator summary-model generation and returned a deterministic, phase-labeled fallback when a draft exceeds its deadline, while preserving caller cancellation and model-resolution errors. Thanks torn1147 (@torn1147) for reporting #43.
 - Updated the `librarian` skill to use verified, session-scoped clone paths returned by `fetch_content` instead of assuming `/tmp/pi-github-repos`, and to refetch missing clones. Thanks mcwalrus (@mcwalrus) for #136 and gravewhisper (@gravewhisper) for #23.
 - Used `gemini-2.5-flash` as the Gemini API grounded-search default while preserving configured `searchModel` values and the shared URL/video defaults. Thanks lajarre for reporting #11.
 - Used the configured search provider when tool calls omit `provider` or emit the schema's `auto` default, while preserving explicit provider overrides and auto fallback without configuration. Thanks Pavlo (@fxposter) for reporting #17.

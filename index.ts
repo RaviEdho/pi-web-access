@@ -668,6 +668,7 @@ export default function (pi: ExtensionAPI) {
 				: (normalizedText.length > 0 ? Math.max(1, Math.ceil(normalizedText.length / 4)) : 0),
 			fallbackUsed: meta.fallbackUsed === true,
 			fallbackReason: meta.fallbackReason,
+			phase: meta.phase,
 			edited: meta.edited === true,
 		};
 	}
@@ -949,6 +950,7 @@ export default function (pi: ExtensionAPI) {
 							tokenEstimate: opts.summaryMeta?.tokenEstimate ?? 0,
 							fallbackUsed: opts.summaryMeta?.fallbackUsed === true,
 							fallbackReason: opts.summaryMeta?.fallbackReason,
+							phase: opts.summaryMeta?.phase,
 							edited: opts.summaryMeta?.edited === true,
 						},
 					}
@@ -1617,6 +1619,7 @@ export default function (pi: ExtensionAPI) {
 					tokenEstimate: number;
 					fallbackUsed: boolean;
 					fallbackReason?: string;
+					phase?: "summary-model" | "deterministic-fallback";
 					edited?: boolean;
 				};
 			};
@@ -1697,12 +1700,13 @@ export default function (pi: ExtensionAPI) {
 					`duration=${details.summary.durationMs}ms`,
 					`tokens~${details.summary.tokenEstimate}`,
 					details.summary.fallbackUsed ? "fallback=true" : "fallback=false",
+					details.summary.phase ? `phase=${details.summary.phase}` : "",
 					details.summary.edited ? "edited=true" : "edited=false",
 				];
 				if (details.summary.fallbackReason) {
 					metaParts.push(`reason=${details.summary.fallbackReason}`);
 				}
-				lines.push(theme.fg("dim", "  " + metaParts.join(" · ")));
+				lines.push(theme.fg("dim", "  " + metaParts.filter(Boolean).join(" · ")));
 			}
 
 			const queryDetails = details?.curatedQueries;
