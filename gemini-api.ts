@@ -75,18 +75,48 @@ export function getVersionedApiBase(): string {
 	return `${getApiHost()}/${API_VERSION}`;
 }
 
-export function getCloudflareApiKey(): string | null {
+function getLegacyCloudflareApiKey(): string | null {
 	return normalizeApiKey(process.env.CLOUDFLARE_API_KEY) ?? normalizeApiKey(loadConfig().cloudflareApiKey);
 }
 
-export function isGatewayConfigured(): boolean {
-	return isCloudflareGateway() && getCloudflareApiKey() !== null;
+async function resolveCloudflareApiKey(signal?: AbortSignal): Promise<string | null> {
+	return resolveCredential({
+		provider: "Cloudflare",
+		configuredValue: loadConfig().cloudflareApiKey,
+		environmentValue: process.env.CLOUDFLARE_API_KEY,
+		signal,
+	});
 }
 
-export function buildAuthHeaders(apiKey: string | null = null): Record<string, string> {
+export function getCloudflareApiKey(): string | null {
+	return getLegacyCloudflareApiKey();
+}
+
+export function isGatewayConfigured(): boolean {
+	return isCloudflareGateway() && hasCredentialSource({
+		provider: "Cloudflare",
+		configuredValue: loadConfig().cloudflareApiKey,
+		environmentValue: process.env.CLOUDFLARE_API_KEY,
+	});
+}
+
+export function buildAuthHeaders(apiKey: string | null = null, cloudflareApiKey: string | null = getLegacyCloudflareApiKey()): Record<string, string> {
 	if (!isCloudflareGateway()) return apiKey ? { "x-goog-api-key": apiKey } : {};
-	const cloudflareApiKey = getCloudflareApiKey();
 	return cloudflareApiKey ? { "cf-aig-authorization": `Bearer ${cloudflareApiKey}` } : {};
+}
+
+function redactGeminiCredentials(text: string, apiKey: string | null | undefined, cloudflareApiKey: string | null | undefined): string {
+	return redactCredential(redactCredential(text, apiKey), cloudflareApiKey);
+}
+
+const responseCredentials = new WeakMap<Response, {
+	apiKey: string | null | undefined;
+	cloudflareApiKey: string | null | undefined;
+}>();
+
+export function redactGeminiApiResponse(response: Response, text: string, apiKey?: string | null): string {
+	const credentials = responseCredentials.get(response);
+	return redactGeminiCredentials(text, credentials?.apiKey ?? apiKey, credentials?.cloudflareApiKey);
 }
 
 export async function fetchGeminiApi(
@@ -101,6 +131,7 @@ export async function fetchGeminiApi(
 		}
 	}
 	const resolvedApiKey = apiKey === undefined ? await getApiKey(init.signal ?? undefined) : apiKey;
+	const cloudflareApiKey = isCloudflareGateway() ? await resolveCloudflareApiKey(init.signal ?? undefined) : null;
 	const allowedOrigins = new Set([
 		new URL(getApiHost()).origin,
 		new URL(DEFAULT_API_HOST).origin,
@@ -111,14 +142,16 @@ export async function fetchGeminiApi(
 	const headers = new Headers(init.headers);
 	headers.delete("x-goog-api-key");
 	headers.delete("cf-aig-authorization");
-	for (const [name, value] of Object.entries(buildAuthHeaders(resolvedApiKey))) {
+	for (const [name, value] of Object.entries(buildAuthHeaders(resolvedApiKey, cloudflareApiKey))) {
 		headers.set(name, value);
 	}
 	try {
-		return await fetch(parsedUrl, { ...init, headers });
+		const response = await fetch(parsedUrl, { ...init, headers });
+		responseCredentials.set(response, { apiKey: resolvedApiKey, cloudflareApiKey });
+		return response;
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
-		const redactedMessage = redactCredential(message, resolvedApiKey);
+		const redactedMessage = redactGeminiCredentials(message, resolvedApiKey, cloudflareApiKey);
 		if (redactedMessage === message) throw error;
 		const redactedError = new Error(redactedMessage);
 		if (error instanceof Error) redactedError.name = error.name;
@@ -183,7 +216,7 @@ export async function queryGeminiApiWithVideo(
 	}, apiKey);
 
 	if (!res.ok) {
-		const errorText = redactCredential(await res.text(), apiKey);
+		const errorText = redactGeminiApiResponse(res, await res.text(), apiKey);
 		throw new Error(`Gemini API error ${res.status}: ${errorText.slice(0, 300)}`);
 	}
 
