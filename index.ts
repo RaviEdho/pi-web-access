@@ -36,7 +36,7 @@ import { join } from "node:path";
 import { isPerplexityAvailable } from "./perplexity.ts";
 import { isExaAvailable } from "./exa.ts";
 import { isGeminiApiAvailable } from "./gemini-api.ts";
-import { getActiveGoogleEmail, isGeminiWebAvailable } from "./gemini-web.ts";
+import { getActiveGoogleEmail, getGeminiWebAvailabilityDiagnostic, isGeminiWebAvailable } from "./gemini-web.ts";
 import { isBrowserCookieAccessAllowed } from "./gemini-web-config.ts";
 import { isBraveAvailable } from "./brave.ts";
 import { isOpenAISearchAvailable } from "./openai-search.ts";
@@ -2746,11 +2746,15 @@ export default function (pi: ExtensionAPI) {
 
 			const cookies = await isGeminiWebAvailable();
 			if (!cookies) {
+				const diagnostic = getGeminiWebAvailabilityDiagnostic();
+				const text = diagnostic
+					? `Gemini Web is unavailable: ${diagnostic}`
+					: "Gemini Web is unavailable. Sign into gemini.google.com in a supported Chromium-based browser.";
 				pi.sendMessage({
 					customType: "google-account",
-					content: [{ type: "text", text: "Gemini Web is unavailable. Sign into gemini.google.com in a supported Chromium-based browser." }],
+					content: [{ type: "text", text }],
 					display: true,
-					details: { available: false, cookieAccessAllowed: true },
+					details: { available: false, cookieAccessAllowed: true, diagnostic },
 				}, { triggerTurn: true, deliverAs: "followUp" });
 				return;
 			}

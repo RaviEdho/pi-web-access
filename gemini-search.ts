@@ -3,7 +3,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { activityMonitor } from "./activity.ts";
 import { CredentialResolutionError, redactCredential } from "./credential-source.ts";
 import { getApiKey, getVersionedApiBase, fetchGeminiApi, isGatewayConfigured } from "./gemini-api.ts";
-import { isGeminiWebAvailable, queryWithCookies } from "./gemini-web.ts";
+import { getGeminiWebAvailabilityDiagnostic, isGeminiWebAvailable, queryWithCookies } from "./gemini-web.ts";
 import { isPerplexityAvailable, searchWithPerplexity, type SearchResult, type SearchResponse, type SearchOptions } from "./perplexity.ts";
 import { hasExaApiKey, isExaAvailable, searchWithExa } from "./exa.ts";
 import { isBraveAvailable, searchWithBrave } from "./brave.ts";
@@ -107,6 +107,8 @@ async function searchWithGemini(
 	try {
 		const webResult = await searchWithGeminiWeb(query, options);
 		if (webResult) return webResult;
+		const diagnostic = getGeminiWebAvailabilityDiagnostic();
+		if (diagnostic) errors.push(`Gemini Web: ${diagnostic}`);
 	} catch (err) {
 		if (isAbortError(err)) throw err;
 		errors.push(`Gemini Web: ${errorMessage(err)}`);
