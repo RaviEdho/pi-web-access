@@ -10,10 +10,11 @@ import { isBraveAvailable, searchWithBrave } from "./brave.ts";
 import { isOpenAISearchAvailable, searchWithOpenAI } from "./openai-search.ts";
 import { isParallelAvailable, searchWithParallel } from "./parallel.ts";
 import { isTavilyAvailable, searchWithTavily } from "./tavily.ts";
+import { isSerpdiveAvailable, searchWithSerpdive } from "./serpdive.ts";
 import { isSearXNGAvailable, searchWithSearXNG } from "./searxng.ts";
 import { getWebSearchConfigPath } from "./utils.ts";
 
-export type SearchProvider = "auto" | "openai" | "brave" | "parallel" | "tavily" | "searxng" | "perplexity" | "gemini" | "exa";
+export type SearchProvider = "auto" | "openai" | "brave" | "parallel" | "tavily" | "searxng" | "perplexity" | "gemini" | "exa" | "serpdive";
 export type ResolvedSearchProvider = Exclude<SearchProvider, "auto">;
 export type SearchProviderErrorKind =
 	| "transient"
@@ -261,6 +262,7 @@ async function searchWithResolvedProvider(
 	if (provider === "brave") return { ...(await searchWithBrave(query, options)), provider };
 	if (provider === "parallel") return { ...(await searchWithParallel(query, options)), provider };
 	if (provider === "tavily") return { ...(await searchWithTavily(query, options)), provider };
+	if (provider === "serpdive") return { ...(await searchWithSerpdive(query, options)), provider };
 	if (provider === "perplexity") return { ...(await searchWithPerplexity(query, options)), provider };
 	if (provider === "searxng") return { ...(await searchWithSearXNG(query, options)), provider };
 	if (provider === "gemini") {
@@ -384,6 +386,16 @@ export async function search(query: string, options: FullSearchOptions = {}): Pr
 		} catch (err) {
 			if (isAbortError(err)) throw err;
 			fallbackErrors.push(`Tavily: ${errorMessage(err)}`);
+		}
+	}
+
+	if (isSerpdiveAvailable()) {
+		try {
+			const result = await searchWithSerpdive(query, options);
+			return { ...result, provider: "serpdive" };
+		} catch (err) {
+			if (isAbortError(err)) throw err;
+			fallbackErrors.push(`SERPdive: ${errorMessage(err)}`);
 		}
 	}
 
