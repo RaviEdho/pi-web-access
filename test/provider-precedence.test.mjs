@@ -122,6 +122,6 @@ test("malformed config root fails with an explicit object-shape error", async ()
 test("curated and non-curated branches both resolve the requested provider", async () => {
 	const { readFile } = await import("node:fs/promises");
 	const source = await readFile(new URL("../index.ts", import.meta.url), "utf8");
-	assert.match(source, /if \(shouldCurate\) \{[\s\S]*?const requestedProvider = resolveRequestedProvider\(params\.provider\);[\s\S]*?const searchProvider = requestedProvider === "auto" \? "auto" : defaultProvider;/);
+	assert.match(source, /if \(shouldCurate\) \{[\s\S]*?const requestedProvider = resolveRequestedProvider\(params\.provider\);[\s\S]*?const searchProvider = requestedProvider;/);
 	assert.match(source, /const resolvedProvider = resolveRequestedProvider\(params\.provider\);[\s\S]*?provider: resolvedProvider,/);
 });

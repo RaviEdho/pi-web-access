@@ -5,7 +5,7 @@ import { StringEnum, complete, type Model } from "@earendil-works/pi-ai/compat";
 import type { ExtractedContent, ExtractOptions } from "./extract.ts";
 import { normalizeFetchContentParams } from "./fetch-params.ts";
 import { clearCloneCache } from "./github-extract.ts";
-import { search, type SearchProvider, type ResolvedSearchProvider } from "./gemini-search.ts";
+import { getConfiguredSearchRouting, search, type SearchProvider, type ResolvedSearchProvider } from "./gemini-search.ts";
 import type { SearchResult } from "./perplexity.ts";
 import { formatSeconds, getWebSearchConfigDir, getWebSearchConfigPath } from "./utils.ts";
 import {
@@ -89,6 +89,7 @@ function renderSearchErrorPlan(plan: SearchErrorPlan, expanded: boolean, theme: 
 
 interface WebSearchConfig {
 	provider?: string;
+	searchProvider?: string;
 	workflow?: string;
 	curatorTimeoutSeconds?: unknown;
 	summaryModel?: string;
@@ -227,7 +228,8 @@ function normalizeProviderInput(value: unknown): SearchProvider | undefined {
 function resolveRequestedProvider(requested: unknown): SearchProvider {
 	const normalizedRequested = normalizeProviderInput(requested);
 	if (normalizedRequested && normalizedRequested !== "auto") return normalizedRequested;
-	return normalizeProviderInput(loadConfig().provider) ?? "auto";
+	const config = loadConfig();
+	return normalizeProviderInput(config.searchProvider ?? config.provider) ?? "auto";
 }
 
 function normalizeCuratorTimeoutSeconds(value: unknown): number | undefined {
@@ -317,6 +319,13 @@ function resolveProvider(
 	const preferOpenAI = shouldPreferOpenAI(options);
 
 	if (provider === "auto") {
+		const routing = getConfiguredSearchRouting();
+		if (routing) {
+			for (const candidate of routing.providers) {
+				if (available[candidate]) return candidate;
+			}
+			return routing.providers[0];
+		}
 		return firstAvailableProvider(available, preferOpenAI, "exa");
 	}
 	if (provider === "openai" && !available.openai) {
@@ -1424,7 +1433,7 @@ export default function (pi: ExtensionAPI) {
 				});
 				const availableProviders = bootstrap.availableProviders;
 				const defaultProvider = bootstrap.defaultProvider;
-				const searchProvider = requestedProvider === "auto" ? "auto" : defaultProvider;
+				const searchProvider = requestedProvider;
 				const curatorTimeoutSeconds = bootstrap.timeoutSeconds;
 				const curatorWorkflow: CuratorWorkflow = "summary-review";
 

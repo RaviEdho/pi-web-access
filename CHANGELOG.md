@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Added opt-in ordered search routing through `searchRouting.providers` with explicit transient, quota, and network fallback kinds; named providers remain strict, single-provider config retains precedence, and exhausted routes preserve per-provider diagnostics. Thanks @smithyyang for #77.
 - Added optional self-hosted SearXNG search with SSRF-guarded base URLs, local-first auto selection, result filters, and documented `ssrf.allowRanges` opt-ins. Thanks to Marcos A. Núñez (@marnunez) for PR #107 and Avinash Kanaujiya (@avinashkanaujiya) for issue #105.
 - Added optional self-hosted Firecrawl extraction for `fetch_content`, using `/v2/scrape` by default (or `/v1/scrape` for older images), request-time credential sources, cache-only requests by default, cross-origin redirect credential stripping, and local-first fallback behavior when configured. Thanks Florian Kinder (@fank) for PR #123 and Avinash Kanaujiya (@avinashkanaujiya) for issue #105.
 - Added opt-in configurable public tool names for environments where another extension or model reserves the defaults, while keeping `web_search`, `source_check`, `fetch_content`, and `get_search_content` unchanged by default. Thanks Kaiqiang (@youkq95) for reporting #138.
