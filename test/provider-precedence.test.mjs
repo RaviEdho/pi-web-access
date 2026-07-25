@@ -89,6 +89,36 @@ test("auto still uses provider fallback when no provider is configured", async (
 	assert.deepEqual(calls, ["https://api.openai.com/v1/responses"]);
 });
 
+test("malformed config root fails with an explicit object-shape error", async () => {
+	const root = await mkdtemp(join(tmpdir(), "pi-web-access-invalid-config-root-"));
+	const agentDir = join(root, "agent-dir");
+	await mkdir(agentDir, { recursive: true });
+	await writeFile(join(agentDir, "web-search.json"), "null\n", "utf8");
+
+	const child = spawnSync(process.execPath, ["--input-type=module"], {
+		input: `
+			globalThis.fetch = async () => { throw new Error("fetch should not run"); };
+			const tools = [];
+			const pi = {
+				registerTool(tool) { tools.push(tool); },
+				registerShortcut() {},
+				registerCommand() {},
+				on() {},
+				appendEntry() {},
+				sendMessage() {},
+			};
+			const extension = (await import(${JSON.stringify(indexUrl)})).default;
+			extension(pi);
+			const tool = tools.find((candidate) => candidate.name === "web_search");
+			await tool.execute("invalid-config-root-test", { query: "x", workflow: "none", provider: "auto" });
+		`,
+		encoding: "utf8",
+		env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, OPENAI_API_KEY: "openai-test-key" },
+	});
+	assert.notEqual(child.status, 0);
+	assert.match(child.stderr, /Invalid config in .*web-search\.json: expected a JSON object/);
+});
+
 test("curated and non-curated branches both resolve the requested provider", async () => {
 	const { readFile } = await import("node:fs/promises");
 	const source = await readFile(new URL("../index.ts", import.meta.url), "utf8");

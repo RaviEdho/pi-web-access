@@ -16,7 +16,12 @@ test("packed installs include typebox without peer dependencies", async () => {
 			encoding: "utf8",
 			stdio: ["ignore", "pipe", "pipe"],
 		});
-		const [{ filename }] = JSON.parse(packOutput);
+		const [{ filename, files }] = JSON.parse(packOutput);
+		const packedFiles = files.map((file) => file.path);
+		assert.ok(packedFiles.includes("index.ts"));
+		assert.ok(packedFiles.includes("CHANGELOG.md"));
+		assert.ok(packedFiles.some((path) => path.startsWith("skills/")));
+		assert.ok(!packedFiles.some((path) => path.startsWith("test/")));
 		const tarball = join(tempDir, filename);
 
 		execFileSync("npm", ["install", "--omit=peer", "--ignore-scripts", "--no-audit", "--no-fund", tarball], {

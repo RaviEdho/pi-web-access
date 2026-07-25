@@ -33,14 +33,23 @@ interface SsrfConfig {
  * weakened.
  */
 export function loadSsrfConfig(): SsrfConfig {
-	let ssrf: unknown;
+	if (!existsSync(WEB_SEARCH_CONFIG_PATH)) return { allowRanges: [], trustEnvProxy: false };
+	let raw: string;
 	try {
-		if (!existsSync(WEB_SEARCH_CONFIG_PATH)) return { allowRanges: [], trustEnvProxy: false };
-		const raw = readFileSync(WEB_SEARCH_CONFIG_PATH, "utf-8");
-		ssrf = (JSON.parse(raw) as { ssrf?: unknown })?.ssrf;
+		raw = readFileSync(WEB_SEARCH_CONFIG_PATH, "utf-8");
 	} catch {
 		return { allowRanges: [], trustEnvProxy: false };
 	}
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(raw);
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		throw new Error(`Failed to parse ${WEB_SEARCH_CONFIG_PATH}: ${message}`);
+	}
+	const ssrf = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+		? (parsed as { ssrf?: unknown }).ssrf
+		: undefined;
 	if (ssrf === undefined || ssrf === null) return { allowRanges: [], trustEnvProxy: false };
 	if (typeof ssrf !== "object" || Array.isArray(ssrf)) {
 		throw new Error(`ssrf in ${WEB_SEARCH_CONFIG_PATH} must be an object`);
@@ -135,7 +144,7 @@ async function extractWithJinaReader(
 
 	try {
 		const ssrf = loadSsrfConfig();
-		await validateRemoteUrl(url, { allowRanges: ssrf.allowRanges, trustEnvProxy: ssrf.trustEnvProxy, lookup });
+		await validateRemoteUrl(url, { allowRanges: ssrf.allowRanges, trustEnvProxy: ssrf.trustEnvProxy, ...(lookup ? { lookup } : {}) });
 		const res = await fetch(jinaUrl, {
 			headers: {
 				"Accept": "text/markdown",
@@ -236,7 +245,7 @@ function buildFrameResult(
 		content: `${frames.length} frames extracted from ${label}`,
 		error: null,
 		frames,
-		duration,
+		...(duration !== undefined ? { duration } : {}),
 	};
 }
 
@@ -423,7 +432,11 @@ export async function extractContent(
 		const parsed = new URL(url);
 		if (parsed.protocol === "http:" || parsed.protocol === "https:") {
 			const ssrf = loadSsrfConfig();
-			await validateRemoteUrl(parsed, { allowRanges: ssrf.allowRanges, trustEnvProxy: ssrf.trustEnvProxy, lookup: options?.lookup });
+			await validateRemoteUrl(parsed, {
+				allowRanges: ssrf.allowRanges,
+				trustEnvProxy: ssrf.trustEnvProxy,
+				...(options?.lookup ? { lookup: options.lookup } : {}),
+			});
 		}
 	} catch (err) {
 		return { url, title: "", content: "", error: errorMessage(err) };
@@ -574,7 +587,11 @@ async function extractViaHttp(
 					"Upgrade-Insecure-Requests": "1",
 				},
 			},
-			{ allowRanges: ssrf.allowRanges, trustEnvProxy: ssrf.trustEnvProxy, lookup: options?.lookup },
+			{
+				allowRanges: ssrf.allowRanges,
+				trustEnvProxy: ssrf.trustEnvProxy,
+				...(options?.lookup ? { lookup: options.lookup } : {}),
+			},
 		);
 
 		if (!response.ok) {

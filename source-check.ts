@@ -232,19 +232,22 @@ export function buildResearchArtifact(input: BuildArtifactInput): ResearchArtifa
 		if (seen.has(result.url)) continue;
 		seen.add(result.url);
 		const page = fetchedByUrl.get(result.url);
+		const fetched = Boolean(page && !page.error);
 		sources.push({
 			rank: result.rank ?? index + 1,
 			url: result.url,
 			title: result.title,
 			snippet: result.snippet,
 			quality: classifySource(result.url),
-			fetched: Boolean(page && !page.error),
-			fetch_timestamp: page ? Date.now() : undefined,
-			content_hash: page && !page.error ? hashContent(page.content) : undefined,
-			fetch_error: page?.error ?? undefined,
+			fetched,
+			...(page ? { fetch_timestamp: Date.now() } : {}),
+			...(page && !page.error ? { content_hash: hashContent(page.content) } : {}),
+			...(page?.error ? { fetch_error: page.error } : {}),
 		});
 	}
 	const passages = buildPassages(sources, input.fetched, input.query);
+	const domainInclude = filters.filter((domain) => !domain.startsWith("-"));
+	const domainExclude = filters.filter((domain) => domain.startsWith("-")).map((domain) => domain.slice(1));
 	return {
 		id: generateId(),
 		type: "research",
@@ -252,13 +255,13 @@ export function buildResearchArtifact(input: BuildArtifactInput): ResearchArtifa
 		query: input.query,
 		sources,
 		passages,
-		provider: input.provider,
-		summary: input.summary,
-		content_hash: passages.length > 0 ? hashContent(passages.map((passage) => passage.text).join("\n")) : undefined,
+		...(input.provider !== undefined ? { provider: input.provider } : {}),
+		...(input.summary !== undefined ? { summary: input.summary } : {}),
+		...(passages.length > 0 ? { content_hash: hashContent(passages.map((passage) => passage.text).join("\n")) } : {}),
 		filters: {
-			recency: input.recency,
-			domain_include: filters.filter((domain) => !domain.startsWith("-")),
-			domain_exclude: filters.filter((domain) => domain.startsWith("-")).map((domain) => domain.slice(1)),
+			...(input.recency !== undefined ? { recency: input.recency } : {}),
+			domain_include: domainInclude,
+			domain_exclude: domainExclude,
 		},
 	};
 }

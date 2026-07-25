@@ -10,10 +10,12 @@ All notable changes to this project will be documented in this file.
 - Added `source_check` machine-readable research artifacts with passage-level provenance, bounded page fetching, durable session retrieval, and conservative claim assessments. Thanks Clark Everson (@gr3enarr0w) for PR #111 and issue #108.
 
 ### Changed
+- Limited the published package contents to runtime files, skills, docs, and declared assets, keeping internal tests out of the npm tarball.
 - Deferred the heavy content extraction module until the first `fetch_content` or `includeContent` search call, reducing extension startup work. Thanks Kaushik Gopal (@kaushikgopal) for PR #125.
 - Send direct Gemini API credentials in `x-goog-api-key` headers for generate, upload, status, and delete requests instead of URL query parameters.
 
 ### Fixed
+- Hardened unreleased config/result boundaries by rejecting malformed config roots, reporting malformed SSRF JSON, normalizing invalid Perplexity result counts, and rejecting contradictory curator summary metadata.
 - Reworked opt-in Gemini Web browser-cookie extraction to scan non-default Chromium profiles, preflight required cookie names before Keychain/secret-tool access, and cache encryption passwords only in-process. Thanks Kevin Truong (@kevinQTruong) for the originating PR #14, Jessica Black (@jssblck) for reporting #9, János Veres (@jveres) for reporting #2, and RimuruW (@RimuruW) for reporting #15.
 - Added read-only `sqlite3` CLI and Python stdlib fallbacks when `node:sqlite` is unavailable, with sanitized actionable diagnostics instead of silently reporting Gemini Web as unavailable.
 - Bounded curator summary-model generation and returned a deterministic, phase-labeled fallback when a draft exceeds its deadline, while preserving caller cancellation and model-resolution errors. Thanks torn1147 (@torn1147) for reporting #43.

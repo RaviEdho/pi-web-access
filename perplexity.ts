@@ -118,7 +118,9 @@ export async function searchWithPerplexity(query: string, options: SearchOptions
 	});
 
 	const apiKey = await getApiKey(options.signal);
-	const numResults = Math.min(options.numResults ?? 5, 20);
+	const numResults = typeof options.numResults === "number" && Number.isFinite(options.numResults)
+		? Math.max(1, Math.min(Math.floor(options.numResults), 20))
+		: 5;
 
 	const requestBody: Record<string, unknown> = {
 		model: "sonar",
@@ -147,7 +149,7 @@ export async function searchWithPerplexity(query: string, options: SearchOptions
 				"Content-Type": "application/json",
 			},
 			body: JSON.stringify(requestBody),
-			signal: options.signal,
+			...(options.signal ? { signal: options.signal } : {}),
 		});
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);

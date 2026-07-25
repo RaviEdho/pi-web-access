@@ -149,6 +149,8 @@ function normalizeSummaryMeta(value: unknown): SummaryMeta | null {
 
 	const phase = meta.phase;
 	if (phase !== undefined && phase !== "summary-model" && phase !== "deterministic-fallback") return null;
+	if (phase === "deterministic-fallback" && fallbackUsed !== true) return null;
+	if (phase === "summary-model" && fallbackUsed !== false) return null;
 
 	const edited = meta.edited;
 	if (edited !== undefined && typeof edited !== "boolean") return null;
@@ -158,9 +160,9 @@ function normalizeSummaryMeta(value: unknown): SummaryMeta | null {
 		durationMs,
 		tokenEstimate,
 		fallbackUsed,
-		fallbackReason,
-		phase,
-		edited,
+		...(fallbackReason !== undefined ? { fallbackReason } : {}),
+		...(phase !== undefined ? { phase } : {}),
+		...(edited !== undefined ? { edited } : {}),
 	};
 }
 
@@ -423,7 +425,7 @@ export function startCuratorServer(
 						ok: true,
 						queryIndex: qi,
 						error: message,
-						provider: typeof provider === "string" && provider.length > 0 ? provider : undefined,
+						...(typeof provider === "string" && provider.length > 0 ? { provider } : {}),
 					});
 				}
 				return;
@@ -564,7 +566,12 @@ export function startCuratorServer(
 				}
 				const rawResults = (body as { rawResults?: unknown }).rawResults === true;
 				sendJson(res, 200, { ok: true });
-				setImmediate(() => callbacks.onSubmit({ selectedQueryIndices: parsed.indices, summary, summaryMeta, rawResults }));
+				setImmediate(() => callbacks.onSubmit({
+					selectedQueryIndices: parsed.indices,
+					...(summary !== undefined ? { summary } : {}),
+					...(summaryMeta !== undefined ? { summaryMeta } : {}),
+					rawResults,
+				}));
 				return;
 			}
 

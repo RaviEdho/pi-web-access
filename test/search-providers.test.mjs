@@ -8,6 +8,7 @@ import { test } from "node:test";
 const braveModuleUrl = new URL("../brave.ts", import.meta.url).href;
 const exaModuleUrl = new URL("../exa.ts", import.meta.url).href;
 const openaiModuleUrl = new URL("../openai-search.ts", import.meta.url).href;
+const perplexityModuleUrl = new URL("../perplexity.ts", import.meta.url).href;
 const tavilyModuleUrl = new URL("../tavily.ts", import.meta.url).href;
 const searchModuleUrl = new URL("../gemini-search.ts", import.meta.url).href;
 
@@ -77,6 +78,29 @@ test("Brave search applies domain filters in the query and returned results", as
 	assert.equal(output.count, "20");
 	assert.equal(output.token, "brave-test-key");
 	assert.deepEqual(output.results.map((result) => result.url), ["https://github.com/nicobailon/pi-web-access"]);
+});
+
+test("Perplexity normalizes invalid result counts", async () => {
+	const home = await mkdtemp(join(tmpdir(), "pi-web-access-perplexity-count-"));
+	const child = runChild(`
+		globalThis.fetch = async () => new Response(JSON.stringify({
+			choices: [{ message: { content: "answer" } }],
+			citations: ["https://example.com/a", "https://example.com/b", "https://example.com/c", "https://example.com/d", "https://example.com/e"],
+		}), { status: 200, headers: { "content-type": "application/json" } });
+
+		const { searchWithPerplexity } = await import(${JSON.stringify(perplexityModuleUrl)});
+		const negative = await searchWithPerplexity("negative", { numResults: -1 });
+		const nan = await searchWithPerplexity("nan", { numResults: Number.NaN });
+		const decimal = await searchWithPerplexity("decimal", { numResults: 3.8 });
+		console.log(JSON.stringify({ counts: [negative.results.length, nan.results.length, decimal.results.length] }));
+	`, {
+		HOME: home,
+		USERPROFILE: home,
+		PERPLEXITY_API_KEY: "pplx-test-key",
+	});
+
+	assert.equal(child.status, 0, child.stderr);
+	assert.deepEqual(JSON.parse(child.stdout.trim()).counts, [1, 5, 3]);
 });
 
 test("Tavily search uses bearer auth and maps filters/content", async () => {
