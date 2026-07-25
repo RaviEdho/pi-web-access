@@ -44,6 +44,13 @@ import { isParallelAvailable } from "./parallel.ts";
 import { isTavilyAvailable } from "./tavily.ts";
 import { buildSearchErrorPlan, type SearchErrorDetails, type SearchErrorPlan } from "./render-search-error.ts";
 import { loadEnabledModelPatterns, modelMatchesEnabledPatterns } from "./summary-model-scope.ts";
+import {
+	buildResearchArtifact,
+	withClaimAssessment,
+	storeResearchArtifact,
+	getResearchArtifact,
+	type ResearchArtifact,
+} from "./source-check.ts";
 
 const WEB_SEARCH_CONFIG_PATH = getWebSearchConfigPath();
 
@@ -55,6 +62,10 @@ async function fetchAllContent(
 ): Promise<ExtractedContent[]> {
 	const extractModule = await (extractModulePromise ??= import("./extract.ts"));
 	return extractModule.fetchAllContent(urls, signal, options);
+}
+
+function isAbortError(err: unknown): boolean {
+	return (err instanceof Error ? err.message : String(err)).toLowerCase().includes("abort");
 }
 
 /** Shared collapsed/expanded renderer for an error/cancel plan produced by
@@ -334,6 +345,26 @@ function formatSearchSummary(results: SearchResult[], answer: string): string {
 	let output = answer ? `${answer}\n\n---\n\n**Sources:**\n` : "";
 	output += results.map((r, i) => `${i + 1}. ${r.title}\n   ${r.url}`).join("\n\n");
 	return output;
+}
+
+function formatSourceCheckResult(artifact: ResearchArtifact): string {
+	const assessment = artifact.claims?.[0];
+	const lines = [`# Source check: ${artifact.query}`, ""];
+	if (assessment) {
+		lines.push(`**Status:** ${assessment.status} (confidence ${assessment.confidence.toFixed(2)})`);
+		lines.push(`**Rationale:** ${assessment.rationale}`);
+		if (assessment.supporting_passages.length > 0) lines.push(`**Supporting passages:** ${assessment.supporting_passages.join(", ")}`);
+		if (assessment.contradicting_passages.length > 0) lines.push(`**Contradicting passages:** ${assessment.contradicting_passages.join(", ")}`);
+		lines.push("");
+	}
+	if (artifact.sources.length > 0) {
+		lines.push("## Sources");
+		for (const source of artifact.sources) lines.push(`${source.rank}. [${source.quality}] ${source.title}\n   ${source.url}`);
+		lines.push("");
+	}
+	if (artifact.errors?.length) lines.push(`Search errors: ${artifact.errors.map((entry) => `${entry.query}: ${entry.error}`).join("; ")}`);
+	lines.push(`Artifact responseId: ${artifact.id} (retrievable via get_search_content).`);
+	return lines.join("\n");
 }
 
 function duplicateQuerySet(results: QueryResultData[]): Set<string> {
@@ -1812,6 +1843,102 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
+	if (initConfig.webSearch?.enabled !== false) pi.registerTool({
+		name: "source_check",
+		label: "Source Check",
+		description: "Check a claim against web sources and return a bounded machine-readable research artifact with exact passage citations.",
+		promptSnippet: "Verify a claim with structured source evidence and passage-level citations.",
+		parameters: Type.Object({
+			claim: Type.String({ description: "The assertion to check against web sources." }),
+			queries: Type.Optional(Type.Array(Type.String(), { description: "Search queries (default: the claim)." })),
+			numResults: Type.Optional(Type.Number({ description: "Results per query (default: 5, max: 20)." })),
+			fetchContent: Type.Optional(Type.Boolean({ description: "Fetch up to 5 result pages for exact passage extraction." })),
+			recencyFilter: Type.Optional(StringEnum(["day", "week", "month", "year"], { description: "Filter by recency." })),
+			domainFilter: Type.Optional(Type.Array(Type.String(), { description: "Limit to domains; prefix with - to exclude." })),
+			provider: Type.Optional(StringEnum(["auto", "openai", "brave", "parallel", "tavily", "exa", "perplexity", "gemini"], { description: "Search provider." })),
+		}),
+		async execute(_callId, params, signal, _onUpdate, ctx) {
+			const claim = typeof params.claim === "string" ? params.claim.trim() : "";
+			if (!claim) {
+				return { content: [{ type: "text", text: "Error: 'claim' is required." }], details: { error: "Missing claim" } };
+			}
+
+			const requestedQueries = Array.isArray(params.queries)
+				? params.queries.filter((query): query is string => typeof query === "string").map((query) => query.trim()).filter(Boolean)
+				: [];
+			const queries = (requestedQueries.length > 0 ? requestedQueries : [claim]).slice(0, 8);
+			const numResults = typeof params.numResults === "number" && Number.isFinite(params.numResults)
+				? Math.min(20, Math.max(1, Math.floor(params.numResults)))
+				: 5;
+			const domainFilter = Array.isArray(params.domainFilter)
+				? params.domainFilter.filter((domain): domain is string => typeof domain === "string")
+				: undefined;
+			const resultsByUrl = new Map<string, SearchResult>();
+			const summaries: string[] = [];
+			const errors: Array<{ query: string; error: string }> = [];
+			let provider: string | undefined;
+
+			for (const query of queries) {
+				if (signal?.aborted) break;
+				try {
+					const response = await search(query, {
+						provider: resolveRequestedProvider(params.provider),
+						numResults,
+						recencyFilter: params.recencyFilter,
+						domainFilter,
+						signal,
+						extensionContext: ctx,
+					});
+					if (signal?.aborted) break;
+					provider ??= response.provider;
+					if (response.answer) summaries.push(`${query}: ${response.answer}`);
+					for (const result of response.results) {
+						if (!resultsByUrl.has(result.url)) resultsByUrl.set(result.url, result);
+					}
+				} catch (err) {
+					if (signal?.aborted || isAbortError(err)) break;
+					errors.push({ query, error: err instanceof Error ? err.message : String(err) });
+				}
+			}
+
+			const results = [...resultsByUrl.values()].slice(0, 20).map((result, index) => ({ ...result, rank: index + 1 }));
+			let fetched: ExtractedContent[] = [];
+			if (params.fetchContent && results.length > 0) {
+				const urls = results.slice(0, 5).map((result) => result.url);
+				fetched = (await Promise.all(urls.map(async (url) => {
+					try {
+						const [page] = await fetchAllContent([url], signal);
+						return page;
+					} catch (err) {
+						if (signal?.aborted || isAbortError(err)) throw err;
+						return { url, title: "", content: "", error: err instanceof Error ? err.message : String(err) };
+					}
+				}))).filter((page): page is ExtractedContent => Boolean(page));
+			}
+			const artifact = withClaimAssessment(buildResearchArtifact({
+				query: claim,
+				provider,
+				summary: summaries.length > 0 ? summaries.join("\n\n") : undefined,
+				results,
+				fetched,
+				recency: params.recencyFilter,
+				domainFilter,
+			}), [claim]);
+			if (errors.length > 0) artifact.errors = errors;
+			storeResearchArtifact(artifact);
+			pi.appendEntry("web-search-results", {
+				id: artifact.id,
+				type: "research",
+				timestamp: artifact.timestamp,
+				artifact,
+			});
+			return {
+				content: [{ type: "text", text: formatSourceCheckResult(artifact) }],
+				details: { responseId: artifact.id, artifact, sourceCount: artifact.sources.length, passageCount: artifact.passages.length },
+			};
+		},
+	});
+
 	pi.registerTool({
 		name: "fetch_content",
 		label: "Fetch Content",
@@ -2085,6 +2212,35 @@ export default function (pi: ExtensionAPI) {
 				return {
 					content: [{ type: "text", text: `Error: No stored results for "${params.responseId}"` }],
 					details: { error: "Not found", responseId: params.responseId },
+				};
+			}
+
+			if (data.type === "research") {
+				const artifact = getResearchArtifact(params.responseId);
+				if (!artifact) {
+					return {
+						content: [{ type: "text", text: `Error: artifact ${params.responseId} not found` }],
+						details: { error: "Artifact not found", responseId: params.responseId },
+					};
+				}
+				const serialized = JSON.stringify(artifact, null, 2);
+				const offset = params.offset ?? 0;
+				const limit = params.limit ?? MAX_CONTENT_SLICE_LENGTH;
+				if (!Number.isInteger(offset) || offset < 0) {
+					return { content: [{ type: "text", text: "offset must be a non-negative integer" }], details: { error: "Invalid offset", offset } };
+				}
+				if (!Number.isInteger(limit) || limit <= 0 || limit > MAX_CONTENT_SLICE_LENGTH) {
+					return { content: [{ type: "text", text: `limit must be an integer from 1 to ${MAX_CONTENT_SLICE_LENGTH}` }], details: { error: "Invalid limit", limit, maxLimit: MAX_CONTENT_SLICE_LENGTH } };
+				}
+				if (offset > serialized.length) {
+					return { content: [{ type: "text", text: `offset ${offset} is out of range (0-${serialized.length})` }], details: { error: "Offset out of range", offset, contentLength: serialized.length } };
+				}
+				const endOffset = Math.min(offset + limit, serialized.length);
+				const artifactSlice = serialized.slice(offset, endOffset);
+				const hasMore = endOffset < serialized.length;
+				return {
+					content: [{ type: "text", text: artifactSlice }],
+					details: { responseId: artifact.id, type: "research", contentLength: serialized.length, offset, limit, returnedChars: artifactSlice.length, nextOffset: hasMore ? endOffset : null, truncated: hasMore },
 				};
 			}
 
