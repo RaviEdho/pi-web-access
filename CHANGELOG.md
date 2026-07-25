@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+- Deferred the heavy content extraction module until the first `fetch_content` or `includeContent` search call, reducing extension startup work. Thanks Kaushik Gopal (@kaushikgopal) for PR #125.
+
+### Fixed
+- Added a focused SSRF error hint for TUN/fake-IP `198.18.0.0/15` addresses that points users to the existing `ssrf.allowRanges` opt-in. Thanks Aaron (@BenjaminAaron196) for PR #141 and AstroHan (@Astro-Han) for reporting #134.
+- Registered the web activity widget as a Pi component factory instead of passing a `Text` instance directly. Thanks Trey Hoover (@treyhoover) for PR #132.
+
 ## [0.13.0] - 2026-06-25
 
 ### Added
