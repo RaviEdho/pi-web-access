@@ -423,9 +423,11 @@ test("Gemini API search uses its search-only default model", async () => {
 	const child = runChild(`
 		let capturedUrl = "";
 		let capturedBody = null;
+		let capturedHeaders = null;
 		globalThis.fetch = async (url, init) => {
 			capturedUrl = String(url);
 			capturedBody = JSON.parse(init.body);
+			capturedHeaders = Object.fromEntries(new Headers(init.headers).entries());
 			return new Response(JSON.stringify({
 				candidates: [{ content: { parts: [{ text: "Gemini answer" }] } }],
 			}), { status: 200, headers: { "content-type": "application/json" } });
@@ -433,7 +435,7 @@ test("Gemini API search uses its search-only default model", async () => {
 
 		const { search } = await import(${JSON.stringify(searchModuleUrl)});
 		const result = await search("latest TypeScript version", { provider: "gemini" });
-		console.log(JSON.stringify({ capturedUrl, capturedBody, provider: result.provider }));
+		console.log(JSON.stringify({ capturedUrl, capturedBody, capturedHeaders, provider: result.provider }));
 	`, {
 		HOME: home,
 		USERPROFILE: home,
@@ -443,7 +445,8 @@ test("Gemini API search uses its search-only default model", async () => {
 
 	assert.equal(child.status, 0, child.stderr);
 	const output = JSON.parse(child.stdout.trim());
-	assert.equal(output.capturedUrl, "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=gemini-test-key");
+	assert.equal(output.capturedUrl, "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent");
+	assert.equal(output.capturedHeaders["x-goog-api-key"], "gemini-test-key");
 	assert.deepEqual(output.capturedBody.tools, [{ google_search: {} }]);
 	assert.equal(output.provider, "gemini");
 });
@@ -455,8 +458,10 @@ test("Gemini API search preserves the configured searchModel", async () => {
 		await writeFile(process.env.PI_CODING_AGENT_DIR + "/web-search.json", JSON.stringify({ searchModel: "custom-gemini-model" }));
 
 		let capturedUrl = "";
+		let capturedHeaders = null;
 		globalThis.fetch = async (url, init) => {
 			capturedUrl = String(url);
+			capturedHeaders = Object.fromEntries(new Headers(init.headers).entries());
 			return new Response(JSON.stringify({
 				candidates: [{ content: { parts: [{ text: "Gemini answer" }] } }],
 			}), { status: 200, headers: { "content-type": "application/json" } });
@@ -464,7 +469,7 @@ test("Gemini API search preserves the configured searchModel", async () => {
 
 		const { search } = await import(${JSON.stringify(searchModuleUrl)});
 		await search("configured model", { provider: "gemini" });
-		console.log(capturedUrl);
+		console.log(JSON.stringify({ capturedUrl, capturedHeaders }));
 	`, {
 		HOME: home,
 		USERPROFILE: home,
@@ -473,5 +478,7 @@ test("Gemini API search preserves the configured searchModel", async () => {
 	});
 
 	assert.equal(child.status, 0, child.stderr);
-	assert.equal(child.stdout.trim(), "https://generativelanguage.googleapis.com/v1beta/models/custom-gemini-model:generateContent?key=gemini-test-key");
+	const output = JSON.parse(child.stdout.trim());
+	assert.equal(output.capturedUrl, "https://generativelanguage.googleapis.com/v1beta/models/custom-gemini-model:generateContent");
+	assert.equal(output.capturedHeaders["x-goog-api-key"], "gemini-test-key");
 });

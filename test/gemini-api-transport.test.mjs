@@ -71,6 +71,8 @@ test("Gemini generate, upload, status, and delete use only shared header auth", 
 			absolutePath: ${JSON.stringify(mediaPath)},
 			mimeType: "video/webm",
 			sizeBytes: 15,
+			maxSizeBytes: 50 * 1024 * 1024,
+			withinUploadLimit: true,
 		});
 		await new Promise(resolve => setImmediate(resolve));
 		console.log(JSON.stringify({ result, requests }));
