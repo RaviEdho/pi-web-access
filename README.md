@@ -192,7 +192,7 @@ fetch_content(url)
 
 ### librarian
 
-Bundled research workflow for investigating open-source libraries. Combines GitHub cloning, web search, and git operations (blame, log, show) to produce evidence-backed answers with permalinks. Pi loads it automatically based on your prompt. Also available via `/skill:librarian` with [pi-skill-palette](https://github.com/nicobailon/pi-skill-palette).
+Bundled research workflow for investigating open-source libraries. Combines GitHub cloning, web search, and git operations (blame, log, show) to produce evidence-backed answers with permalinks. For local exploration, it uses the `Repository cloned to:` path from the latest `fetch_content` result, verifies that path first, and treats clone paths as session-scoped and configurable. Pi loads it automatically based on your prompt. Also available via `/skill:librarian` with [pi-skill-palette](https://github.com/nicobailon/pi-skill-palette).
 
 ## Commands
 

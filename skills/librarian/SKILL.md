@@ -43,20 +43,31 @@ Synthesize web results + repo docs. Cite official documentation and link to rele
 
 The core workflow -- clone, find, permalink:
 
-1. **fetch_content** the GitHub repo URL -- this clones it locally and returns the file tree
-2. Use **bash** to search the cloned repo: `grep -rn "function_name"`, `find . -name "*.ts"`
-3. Use **read** to examine specific files once you've located them
-4. Get the commit SHA: `cd /tmp/pi-github-repos/owner/repo && git rev-parse HEAD`
+1. **fetch_content** the GitHub repo URL -- when a clone is available, the result includes `Repository cloned to: <path>` and the file tree
+2. Copy the path from the latest `Repository cloned to:` line, then verify it exists before using **bash**, **read**, `cd`, or any git command. If it is absent, call **fetch_content** again and use the path from the new result
+3. Use **bash** to search the verified clone: `grep -rn "function_name" "$repo_path"`, `find "$repo_path" -name "*.ts"`
+4. Get the commit SHA from the verified, current clone:
+
+   ```bash
+   test -d "$repo_path" || exit 1
+   cd "$repo_path"
+   git rev-parse HEAD
+   ```
+
 5. Construct permalink: `https://github.com/owner/repo/blob/<sha>/path/to/file#L10-L20`
 
-Batch the initial calls: fetch_content (clone) + web_search (recent discussions) in one turn. Then dig into the clone with grep/read once it's available.
+Clone paths are session-scoped and may be removed when the session changes. The configured `githubClone.clonePath` controls where clones are stored, so never assume a fixed directory. If the result uses the API fallback and does not provide a clone path, use its returned content instead of running local git commands.
+
+Batch the initial calls: fetch_content (clone) + web_search (recent discussions) in one turn. Then verify the `Repository cloned to:` path from the latest fetch result before digging into the clone with grep/read or git. If no clone path is returned, continue with the API-backed content instead.
 
 ### Context/History Questions
 
 Use git operations on the cloned repo:
 
 ```bash
-cd /tmp/pi-github-repos/owner/repo
+# Set repo_path to the path from the latest fetch_content result, after verifying it exists.
+test -d "$repo_path" || exit 1
+cd "$repo_path"
 
 # Recent changes to a specific file
 git log --oneline -n 20 -- path/to/file.ts
@@ -96,7 +107,7 @@ Combine everything. Batch these in one turn:
 2. **fetch_content**: clone the repo (or multiple repos if comparing)
 3. **bash**: `gh search issues "keyword" --repo owner/repo --limit 10 & gh search prs "keyword" --repo owner/repo --state merged --limit 10 & wait`
 
-Then dig into the clone with grep, read, git blame, git log as needed.
+Then verify the `Repository cloned to:` path from the latest fetch result before digging into the clone with grep, read, git blame, or git log. If no clone path is returned, continue with the API-backed content instead.
 
 ## Step 3: Construct Permalinks
 
@@ -106,10 +117,11 @@ Permalinks are the whole point. They make your answers citable and verifiable.
 https://github.com/<owner>/<repo>/blob/<commit-sha>/<filepath>#L<start>-L<end>
 ```
 
-Getting the SHA from a cloned repo:
+Getting the SHA from a cloned repo (after verifying the latest reported path):
 
 ```bash
-cd /tmp/pi-github-repos/owner/repo && git rev-parse HEAD
+test -d "$repo_path" || exit 1
+cd "$repo_path" && git rev-parse HEAD
 ```
 
 Getting the SHA from a tag:
@@ -178,8 +190,9 @@ The `prompt` parameter only applies to video content (YouTube URLs and local vid
 | Failure | Recovery |
 |---------|----------|
 | grep finds nothing | Broaden the query, try concept names instead of exact function names |
-| gh CLI rate limited | Use the already-cloned repo in /tmp/pi-github-repos/ for git operations |
+| gh CLI rate limited | Use the verified clone path from the latest `fetch_content` result for git operations |
 | Repo too large to clone | fetch_content returns an API-only view automatically; use that or add `forceClone: true` |
+| Clone path is missing | Verify the latest path and call `fetch_content` again before using `cd`, `read`, or git |
 | File not found in clone | Branch name with slashes may have misresolved; list the repo tree and navigate manually |
 | Uncertain about implementation | State your uncertainty explicitly, propose a hypothesis, show what evidence you did find |
 | Video extraction fails | Ensure Chrome is signed into gemini.google.com (free) or set GEMINI_API_KEY |
@@ -191,5 +204,5 @@ The `prompt` parameter only applies to video content (YouTube URLs and local vid
 - Vary search queries when running multiple searches -- different angles, not the same pattern repeated
 - Prefer recent sources; filter out outdated results when they conflict with newer information
 - For version-specific questions, clone the tagged version: `fetch_content("https://github.com/owner/repo/tree/v1.0.0")`
-- When the repo is already cloned from a previous fetch_content call, reuse it -- check the path before cloning again
+- When the repo is already cloned from a previous fetch_content call, reuse it only after verifying the latest reported path still exists; paths are session-scoped and configurable
 - Answer directly. Skip preamble like "I'll help you with..." -- go straight to findings

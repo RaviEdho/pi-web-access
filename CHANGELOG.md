@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 - Deferred the heavy content extraction module until the first `fetch_content` or `includeContent` search call, reducing extension startup work. Thanks Kaushik Gopal (@kaushikgopal) for PR #125.
 
 ### Fixed
+- Updated the `librarian` skill to use verified, session-scoped clone paths returned by `fetch_content` instead of assuming `/tmp/pi-github-repos`, and to refetch missing clones. Thanks mcwalrus (@mcwalrus) for #136 and gravewhisper (@gravewhisper) for #23.
 - Kept PDF extraction compatible with runtimes without native `Promise.try` and limited PDF.js output to errors. Thanks Guido Witt-Dörring (@guwidoe) for PRs #33 and #34.
 - Returned fetched URL content from `get_search_content` in bounded slices with explicit `offset`/`limit` continuation metadata, preventing large stored pages from overflowing the next model request. Thanks @manfredlift for reporting #112.
 - Kept oversized local videos recognizable for ffmpeg frame/timestamp extraction while preserving the Gemini analysis upload size limit. Thanks @Xandaar for reporting #135.
