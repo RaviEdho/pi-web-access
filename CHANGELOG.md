@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file.
 - Kept oversized local videos recognizable for ffmpeg frame/timestamp extraction while preserving the Gemini analysis upload size limit. Thanks @Xandaar for reporting #135.
 - Declared `typebox` as a regular runtime dependency so clean/global installs can load the extension without relying on Pi or Feynman to provide that peer. Thanks @DuskyElf, @tonytziorvas, and @53able for reporting #59, #63, and #66.
 - Preserved OpenAI/Codex answers even when the provider returns no source citations instead of replacing them with `No results found`. Thanks AstroHan (@Astro-Han) for reporting #117.
+- Prevented browser auto-open failures from crashing the curator fallback path with `ReferenceError: sendCuratorFallbackUpdate is not defined`. Thanks Nisarg Patel (@pnisarg) for PR #121; Apostol Apostolov (@apoapostolov), @2seoik, and Demetre Dzmanashvili (@demetere) for related PRs #133, #120, and #114; and @ruanlinxin, @bluewatercg, @tonydiep, and @pinion05 for reports #103, #116, #126, and #127.
 - Added a focused SSRF error hint for TUN/fake-IP `198.18.0.0/15` addresses that points users to the existing `ssrf.allowRanges` opt-in. Thanks Aaron (@BenjaminAaron196) for PR #141 and AstroHan (@Astro-Han) for reporting #134.
 - Registered the web activity widget as a Pi component factory instead of passing a `Text` instance directly. Thanks Trey Hoover (@treyhoover) for PR #132.
 
