@@ -27,7 +27,7 @@ let cachedSearchConfig: { searchProvider: SearchProvider; searchModel?: string }
 function getSearchConfig(): { searchProvider: SearchProvider; searchModel?: string } {
 	if (cachedSearchConfig) return cachedSearchConfig;
 	if (!existsSync(CONFIG_PATH)) {
-		cachedSearchConfig = { searchProvider: "auto", searchModel: undefined };
+		cachedSearchConfig = { searchProvider: "auto" };
 		return cachedSearchConfig;
 	}
 
@@ -48,9 +48,10 @@ function getSearchConfig(): { searchProvider: SearchProvider; searchModel?: stri
 		throw new Error(`Failed to parse ${CONFIG_PATH}: ${message}`);
 	}
 
+	const searchModel = normalizeSearchModel(raw.searchModel);
 	cachedSearchConfig = {
 		searchProvider: normalizeSearchProvider(raw.searchProvider ?? raw.provider),
-		searchModel: normalizeSearchModel(raw.searchModel),
+		...(searchModel ? { searchModel } : {}),
 	};
 	return cachedSearchConfig;
 }

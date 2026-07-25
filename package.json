@@ -26,6 +26,13 @@
     "url": "https://github.com/nicobailon/pi-web-access/issues"
   },
   "homepage": "https://github.com/nicobailon/pi-web-access#readme",
+  "files": [
+    "*.ts",
+    "skills/",
+    "CHANGELOG.md",
+    "banner.png",
+    "pi-web-fetch-demo.mp4"
+  ],
   "dependencies": {
     "@mozilla/readability": "^0.6.0",
     "linkedom": "^0.16.0",

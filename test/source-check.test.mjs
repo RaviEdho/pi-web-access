@@ -48,6 +48,7 @@ test("artifact assembly handles omitted domain filters and failed fetches", () =
   assert.equal(artifact.sources[0].fetched, false);
   assert.equal(artifact.sources[0].fetch_error, "blocked");
   assert.equal(artifact.sources[0].content_hash, undefined);
+  assert.equal(typeof artifact.sources[0].fetch_timestamp, "number");
 });
 
 test("claim assessment references passage IDs and stores a non-empty artifact ID", () => {

@@ -306,10 +306,9 @@ async function importSqlite(): Promise<typeof import("node:sqlite") | null> {
 	return sqliteModule;
 }
 
-interface QueryResult {
-	rows: SqliteRow[] | null;
-	failure?: SqliteFailure;
-}
+type QueryResult =
+	| { rows: SqliteRow[] }
+	| { rows: null; failure: SqliteFailure };
 
 async function runSqliteQuery(dbPath: string, sql: string): Promise<QueryResult> {
 	const sqlite = await importSqlite();
@@ -342,7 +341,7 @@ function runSqliteCli(dbPath: string, sql: string): Promise<QueryResult> {
 			if (err) { resolve({ rows: null, failure: err.code === "ENOENT" ? "unavailable" : "query" }); return; }
 			try {
 				const parsed = JSON.parse(stdout || "[]");
-				resolve({ rows: Array.isArray(parsed) ? parsed as SqliteRow[] : null, failure: Array.isArray(parsed) ? undefined : "query" });
+				resolve(Array.isArray(parsed) ? { rows: parsed as SqliteRow[] } : { rows: null, failure: "query" });
 			} catch {
 				resolve({ rows: null, failure: "query" });
 			}
@@ -357,7 +356,7 @@ function runPythonSqlite(dbPath: string, sql: string): Promise<QueryResult> {
 			if (err) { resolve({ rows: null, failure: err.code === "ENOENT" ? "unavailable" : "query" }); return; }
 			try {
 				const parsed = JSON.parse(stdout || "[]");
-				resolve({ rows: Array.isArray(parsed) ? parsed as SqliteRow[] : null, failure: Array.isArray(parsed) ? undefined : "query" });
+				resolve(Array.isArray(parsed) ? { rows: parsed as SqliteRow[] } : { rows: null, failure: "query" });
 			} catch {
 				resolve({ rows: null, failure: "query" });
 			}

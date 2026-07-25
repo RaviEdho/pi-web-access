@@ -126,27 +126,29 @@ interface CuratorBootstrap {
 	timeoutSeconds: number;
 }
 
-function loadConfig(): WebSearchConfig {
-	if (!existsSync(WEB_SEARCH_CONFIG_PATH)) return {};
-	const raw = readFileSync(WEB_SEARCH_CONFIG_PATH, "utf-8");
+function parseConfigRoot(raw: string): Record<string, unknown> {
+	let parsed: unknown;
 	try {
-		return JSON.parse(raw) as WebSearchConfig;
+		parsed = JSON.parse(raw);
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
 		throw new Error(`Failed to parse ${WEB_SEARCH_CONFIG_PATH}: ${message}`);
 	}
+	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+		throw new Error(`Invalid config in ${WEB_SEARCH_CONFIG_PATH}: expected a JSON object`);
+	}
+	return parsed as Record<string, unknown>;
+}
+
+function loadConfig(): WebSearchConfig {
+	if (!existsSync(WEB_SEARCH_CONFIG_PATH)) return {};
+	return parseConfigRoot(readFileSync(WEB_SEARCH_CONFIG_PATH, "utf-8")) as WebSearchConfig;
 }
 
 function saveConfig(updates: Partial<WebSearchConfig>): void {
 	let config: Record<string, unknown> = {};
 	if (existsSync(WEB_SEARCH_CONFIG_PATH)) {
-		const raw = readFileSync(WEB_SEARCH_CONFIG_PATH, "utf-8");
-		try {
-			config = JSON.parse(raw) as Record<string, unknown>;
-		} catch (err) {
-			const message = err instanceof Error ? err.message : String(err);
-			throw new Error(`Failed to parse ${WEB_SEARCH_CONFIG_PATH}: ${message}`);
-		}
+		config = parseConfigRoot(readFileSync(WEB_SEARCH_CONFIG_PATH, "utf-8"));
 	}
 
 	Object.assign(config, updates);

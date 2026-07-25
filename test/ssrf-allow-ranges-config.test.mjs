@@ -153,11 +153,11 @@ test("loadSsrfAllowRanges returns [] when ssrf.allowRanges is unset", async () =
 	assert.deepEqual(result.ranges, []);
 });
 
-test("loadSsrfAllowRanges fails safe with [] when the config JSON is invalid", async () => {
+test("loadSsrfAllowRanges reports malformed config JSON", async () => {
 	const { root, agentDir, configPath } = await makeConfigDir("pi-ssrf-badjson-");
 	await writeFile(configPath, "{ not valid json", "utf8");
 
 	const result = runLoad(envFor(root, agentDir));
-	assert.equal(result.ok, true, result.error);
-	assert.deepEqual(result.ranges, []);
+	assert.equal(result.ok, false);
+	assert.match(result.error, /Failed to parse .*web-search\.json/);
 });
