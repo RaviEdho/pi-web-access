@@ -164,6 +164,12 @@ function normalizeProviderInput(value: unknown): SearchProvider | undefined {
 	return valid.includes(normalized as SearchProvider) ? normalized as SearchProvider : "auto";
 }
 
+function resolveRequestedProvider(requested: unknown): SearchProvider {
+	const normalizedRequested = normalizeProviderInput(requested);
+	if (normalizedRequested && normalizedRequested !== "auto") return normalizedRequested;
+	return normalizeProviderInput(loadConfig().provider) ?? "auto";
+}
+
 function normalizeCuratorTimeoutSeconds(value: unknown): number | undefined {
 	if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
 	const normalized = Math.floor(value);
@@ -245,7 +251,7 @@ function resolveProvider(
 	available: ProviderAvailability,
 	options?: Pick<PendingCurate, "numResults" | "recencyFilter">,
 ): ResolvedSearchProvider {
-	const provider = normalizeProviderInput(requested ?? loadConfig().provider ?? "auto") ?? "auto";
+	const provider = resolveRequestedProvider(requested);
 	const preferOpenAI = shouldPreferOpenAI(options);
 
 	if (provider === "auto") {
@@ -1256,9 +1262,9 @@ export default function (pi: ExtensionAPI) {
 		name: "web_search",
 		label: "Web Search",
 		description:
-			`Search the web using OpenAI, Brave, Parallel, Tavily, Exa, Perplexity, or Gemini. Returns an AI-synthesized answer with source citations. OpenAI web_search uses a Codex subscription or OpenAI API key. For comprehensive research, prefer queries (plural) with 2-4 varied angles over a single query — each query gets its own synthesized answer, so varying phrasing and scope gives much broader coverage. When includeContent is true, full page content is fetched in the background. Searches auto-open the interactive browser curator and stream results live; set workflow to "none" to skip curation or "auto-summary" for a model-generated summary without the browser curator. Provider auto-selects: OpenAI when suitable and available, then Exa, Brave, Parallel, Tavily, Perplexity, Gemini API, then Gemini Web.`,
+			`Search the web using OpenAI, Brave, Parallel, Tavily, Exa, Perplexity, or Gemini. Returns an AI-synthesized answer with source citations. OpenAI web_search uses a Codex subscription or OpenAI API key. For comprehensive research, prefer queries (plural) with 2-4 varied angles over a single query — each query gets its own synthesized answer, so varying phrasing and scope gives much broader coverage. When includeContent is true, full page content is fetched in the background. Searches auto-open the interactive browser curator and stream results live; set workflow to "none" to skip curation or "auto-summary" for a model-generated summary without the browser curator. The configured provider is used when provider is omitted or set to auto; omit provider unless explicitly overriding it. Without a configured provider, auto-selects OpenAI when suitable and available, then Exa, Brave, Parallel, Tavily, Perplexity, Gemini API, or Gemini Web.`,
 		promptSnippet:
-			"Use for web research questions. Prefer {queries:[...]} with 2-4 varied angles over a single query for broader coverage.",
+			"Use for web research questions. Prefer {queries:[...]} with 2-4 varied angles over a single query for broader coverage. Omit provider unless explicitly overriding the configured default.",
 		parameters: Type.Object({
 			query: Type.Optional(Type.String({ description: "Single search query. For research tasks, prefer 'queries' with multiple varied angles instead." })),
 			queries: Type.Optional(Type.Array(Type.String(), { description: "Multiple queries searched in sequence, each returning its own synthesized answer. Prefer this for research — vary phrasing, scope, and angle across 2-4 queries to maximize coverage. Good: ['React vs Vue performance benchmarks 2026', 'React vs Vue developer experience comparison', 'React ecosystem size vs Vue ecosystem']. Bad: ['React vs Vue', 'React vs Vue comparison', 'React vs Vue review'] (too similar, redundant results)." })),
@@ -1269,7 +1275,7 @@ export default function (pi: ExtensionAPI) {
 			),
 			domainFilter: Type.Optional(Type.Array(Type.String(), { description: "Limit to domains (prefix with - to exclude)" })),
 			provider: Type.Optional(
-				StringEnum(["auto", "openai", "brave", "parallel", "tavily", "exa", "perplexity", "gemini"], { description: "Search provider (default: auto)" }),
+				StringEnum(["auto", "openai", "brave", "parallel", "tavily", "exa", "perplexity", "gemini"], { description: "Search provider; omit this field (preferred) to use the configured provider, or use auto when none is configured" }),
 			),
 			workflow: Type.Optional(
 				StringEnum(["none", "summary-review", "auto-summary"], {
@@ -1317,14 +1323,14 @@ export default function (pi: ExtensionAPI) {
 					: searchAbort.signal;
 				let cancelled = false;
 
-				const bootstrap = await loadCuratorBootstrap(params.provider, ctx, {
+				const requestedProvider = resolveRequestedProvider(params.provider);
+				const bootstrap = await loadCuratorBootstrap(requestedProvider, ctx, {
 					numResults: params.numResults,
 					recencyFilter: params.recencyFilter,
 				});
 				const availableProviders = bootstrap.availableProviders;
 				const defaultProvider = bootstrap.defaultProvider;
-				const rawSearchProvider = normalizeProviderInput(params.provider ?? loadConfig().provider ?? "auto") ?? "auto";
-				const searchProvider = rawSearchProvider === "auto" ? "auto" : defaultProvider;
+				const searchProvider = requestedProvider === "auto" ? "auto" : defaultProvider;
 				const curatorTimeoutSeconds = bootstrap.timeoutSeconds;
 				const curatorWorkflow: CuratorWorkflow = "summary-review";
 
@@ -1472,7 +1478,7 @@ export default function (pi: ExtensionAPI) {
 			const searchResults: QueryResultData[] = [];
 			const allUrls: string[] = [];
 			const allInlineContent: ExtractedContent[] = [];
-			const resolvedProvider = normalizeProviderInput(params.provider ?? loadConfig().provider);
+			const resolvedProvider = resolveRequestedProvider(params.provider);
 
 			for (let i = 0; i < queryList.length; i++) {
 				const query = queryList[i];
