@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Added optional self-hosted SearXNG search with SSRF-guarded base URLs, local-first auto selection, result filters, and documented `ssrf.allowRanges` opt-ins. Thanks to Marcos A. Núñez (@marnunez) for PR #107 and Avinash Kanaujiya (@avinashkanaujiya) for issue #105.
 - Added opt-in configurable public tool names for environments where another extension or model reserves the defaults, while keeping `web_search`, `source_check`, `fetch_content`, and `get_search_content` unchanged by default. Thanks Kaiqiang (@youkq95) for reporting #138.
 - Added `SECURITY.md` guidance for private vulnerability reporting. Thanks Aurelio Ribeiro (@aurelio-ribeiro) for #128.
 - Added request-time `$ENV_VAR` and `!command` credential sources for every provider API-key field, including escaped `$$` and `$!` literals, while preserving legacy environment precedence for literal config values. Thanks to Eugene Strizhok (@estrizhok) for #159.
