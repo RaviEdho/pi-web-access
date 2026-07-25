@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - Added request-time `$ENV_VAR` and `!command` credential sources for Exa and Gemini API configuration, with bounded output, redacted failures, strict source precedence, and shell-local 1Password session forwarding limited to the resolver command. Thanks to Ezra Miller (@ezmill) for #137.
+- Added `source_check` machine-readable research artifacts with passage-level provenance, bounded page fetching, durable session retrieval, and conservative claim assessments. Thanks Clark Everson (@gr3enarr0w) for PR #111 and issue #108.
 
 ### Changed
 - Deferred the heavy content extraction module until the first `fetch_content` or `includeContent` search call, reducing extension startup work. Thanks Kaushik Gopal (@kaushikgopal) for PR #125.

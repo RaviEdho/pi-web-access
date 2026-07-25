@@ -143,6 +143,22 @@ get_search_content({ responseId: "abc123", url: "https://...", offset: 30000 })
 get_search_content({ responseId: "abc123", query: "original query" })
 ```
 
+### source_check
+
+Check a claim and return a machine-readable artifact with exact passage citations. Search results are deduplicated and capped at 20 sources; `fetchContent` fetches at most 5 pages, while stored and retrieved content remains subject to the existing 30,000-character `offset`/`limit` bounds.
+
+```typescript
+source_check({ claim: "The API supports streaming responses" })
+source_check({
+  claim: "The API supports streaming responses",
+  queries: ["API streaming responses documentation", "API streaming limitations"],
+  fetchContent: true,
+  domainFilter: ["docs.example.com", "-old.example.com"]
+})
+```
+
+The artifact includes `supported`, `contradicted`, `unclear`, or `missing-evidence` claim status, source quality hints, SHA-256 content hashes, and passage IDs with exact source offsets. Search and fetch errors remain in the artifact instead of being silently discarded. Artifacts are stored with the session and retrieved through `get_search_content` using the returned `responseId`; paged artifact responses are JSON slices, so request the next `offset` when needed.
+
 ## Capabilities
 
 ### GitHub repos
