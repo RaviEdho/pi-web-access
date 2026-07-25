@@ -12,9 +12,10 @@ import { isParallelAvailable, searchWithParallel } from "./parallel.ts";
 import { isTavilyAvailable, searchWithTavily } from "./tavily.ts";
 import { isSerpdiveAvailable, searchWithSerpdive } from "./serpdive.ts";
 import { isSearXNGAvailable, searchWithSearXNG } from "./searxng.ts";
+import { isAnySearchAvailable, searchWithAnySearch } from "./anysearch.ts";
 import { getWebSearchConfigPath } from "./utils.ts";
 
-export type SearchProvider = "auto" | "openai" | "brave" | "parallel" | "tavily" | "searxng" | "perplexity" | "gemini" | "exa" | "serpdive";
+export type SearchProvider = "auto" | "openai" | "brave" | "parallel" | "tavily" | "searxng" | "perplexity" | "gemini" | "exa" | "serpdive" | "anysearch";
 export type ResolvedSearchProvider = Exclude<SearchProvider, "auto">;
 export type SearchProviderErrorKind =
 	| "transient"
@@ -61,7 +62,7 @@ export interface AttributedSearchResponse extends SearchResponse {
 
 const CONFIG_PATH = getWebSearchConfigPath();
 const DEFAULT_SEARCH_MODEL = "gemini-2.5-flash";
-const VALID_SEARCH_PROVIDERS: SearchProvider[] = ["auto", "openai", "brave", "parallel", "tavily", "searxng", "perplexity", "gemini", "exa", "serpdive"];
+const VALID_SEARCH_PROVIDERS: SearchProvider[] = ["auto", "openai", "brave", "parallel", "tavily", "searxng", "perplexity", "gemini", "exa", "serpdive", "anysearch"];
 const VALID_ROUTING_KINDS = ["transient", "quota", "network"] as const;
 
 type SearchConfig = {
@@ -228,7 +229,7 @@ function classifyProviderError(provider: ResolvedSearchProvider, err: unknown): 
 		kind = "auth";
 	} else if (status === 400 || status === 422) {
 		kind = "invalid-request";
-	} else if (status === 429) {
+	} else if (status === 402 || status === 429) {
 		kind = "quota";
 	} else if (status !== undefined && (status === 408 || status === 425 || status >= 500)) {
 		kind = "transient";
@@ -263,6 +264,7 @@ async function searchWithResolvedProvider(
 	if (provider === "parallel") return { ...(await searchWithParallel(query, options)), provider };
 	if (provider === "tavily") return { ...(await searchWithTavily(query, options)), provider };
 	if (provider === "serpdive") return { ...(await searchWithSerpdive(query, options)), provider };
+	if (provider === "anysearch") return { ...(await searchWithAnySearch(query, options)), provider };
 	if (provider === "perplexity") return { ...(await searchWithPerplexity(query, options)), provider };
 	if (provider === "searxng") return { ...(await searchWithSearXNG(query, options)), provider };
 	if (provider === "gemini") {
@@ -286,6 +288,7 @@ async function isResolvedProviderAvailable(provider: ResolvedSearchProvider, opt
 	if (provider === "parallel") return isParallelAvailable();
 	if (provider === "tavily") return isTavilyAvailable();
 	if (provider === "serpdive") return isSerpdiveAvailable();
+	if (provider === "anysearch") return isAnySearchAvailable();
 	if (provider === "perplexity") return isPerplexityAvailable();
 	if (provider === "searxng") return isSearXNGAvailable();
 	if (provider === "gemini") return isGeminiApiAvailable() || !!(await isGeminiWebAvailable());
@@ -428,7 +431,8 @@ export async function search(query: string, options: FullSearchOptions = {}): Pr
 		`  2. Set openaiApiKey, braveApiKey, parallelApiKey, tavilyApiKey, serpdiveApiKey, searxngBaseUrl, perplexityApiKey, exaApiKey, geminiApiKey, or cloudflareApiKey in ${CONFIG_PATH}\n` +
 		"  3. Set OPENAI_API_KEY, BRAVE_API_KEY, PARALLEL_API_KEY, TAVILY_API_KEY, SERPDIVE_API_KEY, SEARXNG_BASE_URL, EXA_API_KEY, PERPLEXITY_API_KEY, GEMINI_API_KEY, or CLOUDFLARE_API_KEY env vars\n" +
 		"  4. Set GOOGLE_GEMINI_BASE_URL with CLOUDFLARE_API_KEY for Cloudflare AI Gateway routing\n" +
-		"  5. Sign into gemini.google.com in a supported Chromium-based browser"
+		"  5. Sign into gemini.google.com in a supported Chromium-based browser\n" +
+		"  6. Explicitly select provider: \"anysearch\" for anonymous AnySearch"
 	);
 }
 
