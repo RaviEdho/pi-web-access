@@ -312,6 +312,8 @@ interface PendingCurate {
 
 
 const MAX_INLINE_CONTENT = 30000; // Content returned directly to agent
+const DEFAULT_CONTENT_SLICE_LENGTH = MAX_INLINE_CONTENT;
+const MAX_CONTENT_SLICE_LENGTH = MAX_INLINE_CONTENT;
 
 function stripThumbnails(results: ExtractedContent[]): ExtractedContent[] {
 	return results.map(({ thumbnail, frames, ...rest }) => rest);
@@ -1871,7 +1873,7 @@ export default function (pi: ExtensionAPI) {
 
 				if (truncated) {
 					output += `\n\n---\nShowing ${MAX_INLINE_CONTENT} of ${fullLength} chars. ` +
-						`Use get_search_content({ responseId: "${responseId}", urlIndex: 0 }) for full content.`;
+						`Use get_search_content({ responseId: "${responseId}", urlIndex: 0, offset: ${MAX_INLINE_CONTENT} }) for the next slice.`;
 				}
 
 				const content: Array<{ type: string; text?: string; data?: string; mimeType?: string }> = [];
@@ -1915,7 +1917,7 @@ export default function (pi: ExtensionAPI) {
 					output += `- ${title || url} (${content.length} chars)\n`;
 				}
 			}
-			output += `\n---\nUse get_search_content({ responseId: "${responseId}", urlIndex: 0 }) to retrieve full content.`;
+			output += `\n---\nUse get_search_content({ responseId: "${responseId}", urlIndex: 0 }) to retrieve bounded content slices.`;
 
 			return {
 				content: [{ type: "text", text: output }],
@@ -2050,15 +2052,17 @@ export default function (pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "get_search_content",
 		label: "Get Search Content",
-		description: "Retrieve full content from a previous web_search or fetch_content call.",
+		description: "Retrieve bounded content slices from a previous web_search or fetch_content call.",
 		promptSnippet:
-			"Use after web_search/fetch_content when full stored content is needed via responseId plus query/url selectors.",
+			"Use after web_search/fetch_content to retrieve stored content via responseId plus query/url selectors. Fetched URL content is returned in bounded slices; use offset/limit to continue.",
 		parameters: Type.Object({
 			responseId: Type.String({ description: "The responseId from web_search or fetch_content" }),
 			query: Type.Optional(Type.String({ description: "Get content for this query (web_search)" })),
 			queryIndex: Type.Optional(Type.Number({ description: "Get content for query at index" })),
 			url: Type.Optional(Type.String({ description: "Get content for this URL" })),
 			urlIndex: Type.Optional(Type.Number({ description: "Get content for URL at index" })),
+			offset: Type.Optional(Type.Number({ description: "Character offset for fetched URL content slices (default 0)" })),
+			limit: Type.Optional(Type.Number({ description: `Maximum characters to return for fetched URL content slices (default/max ${MAX_CONTENT_SLICE_LENGTH})` })),
 		}),
 
 		async execute(_toolCallId, params) {
@@ -2113,9 +2117,11 @@ export default function (pi: ExtensionAPI) {
 
 			if (data.type === "fetch" && data.urls) {
 				let urlData: ExtractedContent | undefined;
+				let selectedUrlIndex = -1;
 
 				if (params.url !== undefined) {
-					urlData = data.urls.find((u) => u.url === params.url);
+					selectedUrlIndex = data.urls.findIndex((u) => u.url === params.url);
+					urlData = data.urls[selectedUrlIndex];
 					if (!urlData) {
 						const available = data.urls.map((u) => u.url).join("\n  ");
 						return {
@@ -2124,7 +2130,8 @@ export default function (pi: ExtensionAPI) {
 						};
 					}
 				} else if (params.urlIndex !== undefined) {
-					urlData = data.urls[params.urlIndex];
+					selectedUrlIndex = params.urlIndex;
+					urlData = data.urls[selectedUrlIndex];
 					if (!urlData) {
 						return {
 							content: [{ type: "text", text: `Index ${params.urlIndex} out of range (0-${data.urls.length - 1})` }],
@@ -2146,9 +2153,50 @@ export default function (pi: ExtensionAPI) {
 					};
 				}
 
+				const offset = params.offset ?? 0;
+				const limit = params.limit ?? DEFAULT_CONTENT_SLICE_LENGTH;
+				if (!Number.isInteger(offset) || offset < 0) {
+					return {
+						content: [{ type: "text", text: "offset must be a non-negative integer" }],
+						details: { error: "Invalid offset", offset },
+					};
+				}
+				if (!Number.isInteger(limit) || limit <= 0 || limit > MAX_CONTENT_SLICE_LENGTH) {
+					return {
+						content: [{ type: "text", text: `limit must be an integer from 1 to ${MAX_CONTENT_SLICE_LENGTH}` }],
+						details: { error: "Invalid limit", limit, maxLimit: MAX_CONTENT_SLICE_LENGTH },
+					};
+				}
+				if (offset > urlData.content.length) {
+					return {
+						content: [{ type: "text", text: `offset ${offset} is out of range (0-${urlData.content.length})` }],
+						details: { error: "Offset out of range", offset, contentLength: urlData.content.length },
+					};
+				}
+
+				const endOffset = Math.min(offset + limit, urlData.content.length);
+				const contentSlice = urlData.content.slice(offset, endOffset);
+				const hasMore = endOffset < urlData.content.length;
+				let text = `# ${urlData.title || urlData.url}\n\n${contentSlice}`;
+				if (hasMore || offset > 0) {
+					text += `\n\n---\nShowing chars ${offset}-${endOffset} of ${urlData.content.length}.`;
+					if (hasMore) {
+						text += ` Use get_search_content({ responseId: "${params.responseId}", urlIndex: ${selectedUrlIndex}, offset: ${endOffset}, limit: ${limit} }) for the next slice.`;
+					}
+				}
+
 				return {
-					content: [{ type: "text", text: `# ${urlData.title}\n\n${urlData.content}` }],
-					details: { url: urlData.url, title: urlData.title, contentLength: urlData.content.length },
+					content: [{ type: "text", text }],
+					details: {
+						url: urlData.url,
+						title: urlData.title,
+						contentLength: urlData.content.length,
+						offset,
+						limit,
+						returnedChars: contentSlice.length,
+						nextOffset: hasMore ? endOffset : null,
+						truncated: hasMore,
+					},
 				};
 			}
 
@@ -2159,18 +2207,20 @@ export default function (pi: ExtensionAPI) {
 		},
 
 		renderCall(args, theme) {
-			const { responseId, query, queryIndex, url, urlIndex } = args as {
+			const { responseId, query, queryIndex, url, urlIndex, offset } = args as {
 				responseId: string;
 				query?: string;
 				queryIndex?: number;
 				url?: string;
 				urlIndex?: number;
+				offset?: number;
 			};
 			let target = "";
 			if (query) target = `query="${query}"`;
 			else if (queryIndex !== undefined) target = `queryIndex=${queryIndex}`;
 			else if (url) target = url.length > 30 ? url.slice(0, 27) + "..." : url;
 			else if (urlIndex !== undefined) target = `urlIndex=${urlIndex}`;
+			if (offset !== undefined) target += target ? ` @ ${offset}` : `offset=${offset}`;
 			return new Text(theme.fg("toolTitle", theme.bold("get_content ")) + theme.fg("accent", target || responseId.slice(0, 8)), 0, 0);
 		},
 
@@ -2182,6 +2232,9 @@ export default function (pi: ExtensionAPI) {
 				title?: string;
 				resultCount?: number;
 				contentLength?: number;
+				offset?: number;
+				returnedChars?: number;
+				nextOffset?: number | null;
 			};
 
 			if (details?.error) {
@@ -2198,7 +2251,13 @@ export default function (pi: ExtensionAPI) {
 			if (details?.query) {
 				statusLine = theme.fg("success", `"${details.query}"`) + theme.fg("muted", ` (${details.resultCount} results)`);
 			} else {
-				statusLine = theme.fg("success", details?.title || "Content") + theme.fg("muted", ` (${details?.contentLength ?? 0} chars)`);
+				const start = details?.offset ?? 0;
+				const returned = details?.returnedChars ?? details?.contentLength ?? 0;
+				const end = start + returned;
+				const slice = details?.nextOffset !== undefined || start > 0
+					? `, showing ${start}-${end}`
+					: "";
+				statusLine = theme.fg("success", details?.title || "Content") + theme.fg("muted", ` (${details?.contentLength ?? 0} chars${slice})`);
 			}
 
 			if (!expanded) {

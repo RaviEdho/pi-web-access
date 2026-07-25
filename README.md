@@ -123,11 +123,11 @@ fetch_content({ url: "https://youtube.com/watch?v=abc", timestamp: "23:41-25:00"
 
 ### get_search_content
 
-Retrieve stored content from previous searches or fetches. Content over 30,000 chars is truncated in tool responses but stored in full for retrieval here.
+Retrieve stored content from previous searches or fetches. Fetched URL content is stored in full, but `get_search_content` returns bounded slices by default so large pages do not overflow the next model request. Use `offset` and `limit` to page through long content intentionally.
 
 ```typescript
 get_search_content({ responseId: "abc123", urlIndex: 0 })
-get_search_content({ responseId: "abc123", url: "https://..." })
+get_search_content({ responseId: "abc123", url: "https://...", offset: 30000 })
 get_search_content({ responseId: "abc123", query: "original query" })
 ```
 
