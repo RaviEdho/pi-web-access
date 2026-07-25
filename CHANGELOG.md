@@ -5,21 +5,25 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Added opt-in configurable public tool names for environments where another extension or model reserves the defaults, while keeping `web_search`, `source_check`, `fetch_content`, and `get_search_content` unchanged by default. Thanks Kaiqiang (@youkq95) for reporting #138.
+- Added `SECURITY.md` guidance for private vulnerability reporting. Thanks Aurelio Ribeiro (@aurelio-ribeiro) for #128.
 - Added request-time `$ENV_VAR` and `!command` credential sources for every provider API-key field, including escaped `$$` and `$!` literals, while preserving legacy environment precedence for literal config values. Thanks to Eugene Strizhok (@estrizhok) for #159.
 - Added request-time `$ENV_VAR` and `!command` credential sources for Exa and Gemini API configuration, with bounded output, redacted failures, strict source precedence, and shell-local 1Password session forwarding limited to the resolver command. Thanks to Ezra Miller (@ezmill) for #137.
 - Added `source_check` machine-readable research artifacts with passage-level provenance, bounded page fetching, durable session retrieval, and conservative claim assessments. Thanks Clark Everson (@gr3enarr0w) for PR #111 and issue #108.
 
 ### Changed
-- Limited the published package contents to runtime files, skills, docs, and declared assets, keeping internal tests out of the npm tarball.
+- Limited the published package contents to runtime files, docs, and declared assets, keeping internal tests out of the npm tarball.
 - Deferred the heavy content extraction module until the first `fetch_content` or `includeContent` search call, reducing extension startup work. Thanks Kaushik Gopal (@kaushikgopal) for PR #125.
 - Send direct Gemini API credentials in `x-goog-api-key` headers for generate, upload, status, and delete requests instead of URL query parameters.
+
+### Removed
+- Removed the bundled `librarian` skill from this package instead of keeping a second research workflow coupled to GitHub clone internals. Thanks mcwalrus (@mcwalrus) for #136 and gravewhisper (@gravewhisper) for #23.
 
 ### Fixed
 - Hardened unreleased config/result boundaries by rejecting malformed config roots, reporting malformed SSRF JSON, normalizing invalid Perplexity result counts, and rejecting contradictory curator summary metadata.
 - Reworked opt-in Gemini Web browser-cookie extraction to scan non-default Chromium profiles, preflight required cookie names before Keychain/secret-tool access, and cache encryption passwords only in-process. Thanks Kevin Truong (@kevinQTruong) for the originating PR #14, Jessica Black (@jssblck) for reporting #9, János Veres (@jveres) for reporting #2, and RimuruW (@RimuruW) for reporting #15.
 - Added read-only `sqlite3` CLI and Python stdlib fallbacks when `node:sqlite` is unavailable, with sanitized actionable diagnostics instead of silently reporting Gemini Web as unavailable.
 - Bounded curator summary-model generation and returned a deterministic, phase-labeled fallback when a draft exceeds its deadline, while preserving caller cancellation and model-resolution errors. Thanks torn1147 (@torn1147) for reporting #43.
-- Updated the `librarian` skill to use verified, session-scoped clone paths returned by `fetch_content` instead of assuming `/tmp/pi-github-repos`, and to refetch missing clones. Thanks mcwalrus (@mcwalrus) for #136 and gravewhisper (@gravewhisper) for #23.
 - Used `gemini-2.5-flash` as the Gemini API grounded-search default while preserving configured `searchModel` values and the shared URL/video defaults. Thanks lajarre for reporting #11.
 - Used the configured search provider when tool calls omit `provider` or emit the schema's `auto` default, while preserving explicit provider overrides and auto fallback without configuration. Thanks Pavlo (@fxposter) for reporting #17.
 - Clarified that `githubClone.enabled: false` disables GitHub clone/API specialization while leaving generic URL extraction available. Thanks Carlos Peralta (@cperalt) for issue #26.
