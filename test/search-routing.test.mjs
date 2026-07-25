@@ -15,7 +15,7 @@ async function createConfig(config) {
 
 function runChild(script, env) {
 	const childEnv = { ...process.env };
-	for (const key of ["PI_CODING_AGENT_DIR", "XDG_CONFIG_HOME", "OPENAI_API_KEY", "BRAVE_API_KEY", "TAVILY_API_KEY", "PERPLEXITY_API_KEY"]) {
+	for (const key of ["PI_CODING_AGENT_DIR", "XDG_CONFIG_HOME", "OPENAI_API_KEY", "BRAVE_API_KEY", "PARALLEL_API_KEY", "TAVILY_API_KEY", "SERPDIVE_API_KEY", "SEARXNG_BASE_URL", "EXA_API_KEY", "PERPLEXITY_API_KEY", "GEMINI_API_KEY"]) {
 		delete childEnv[key];
 	}
 	Object.assign(childEnv, env);
@@ -150,6 +150,60 @@ test("legacy single-provider config takes precedence over searchRouting", async 
 		provider: "perplexity",
 		calls: ["https://api.perplexity.ai/chat/completions"],
 	});
+});
+
+test("configured routing accepts SERPdive and detects its availability", async () => {
+	const home = await createConfig({
+		searchRouting: { providers: ["serpdive"], fallbackOn: ["network"] },
+	});
+	const child = runChild(`
+		const calls = [];
+		globalThis.fetch = async (url) => {
+			calls.push(String(url));
+			if (String(url) === "https://api.serpdive.com/v1/search") {
+				return new Response(JSON.stringify({ results: [{ url: "https://serpdive.example/source", title: "SERPdive source", content: "SERPdive content" }] }), { status: 200 });
+			}
+			throw new Error("Unexpected fetch " + url);
+		};
+		const { search } = await import(${JSON.stringify(searchModuleUrl)});
+		const result = await search("serpdive route", { provider: "auto" });
+		console.log(JSON.stringify({ provider: result.provider, answer: result.answer, calls }));
+	`, {
+		PI_CODING_AGENT_DIR: home,
+		SERPDIVE_API_KEY: "serpdive-test-key",
+	});
+
+	assert.equal(child.status, 0, child.stderr);
+	const output = JSON.parse(child.stdout.trim());
+	assert.equal(output.provider, "serpdive");
+	assert.match(output.answer, /SERPdive content/);
+	assert.deepEqual(output.calls, ["https://api.serpdive.com/v1/search"]);
+});
+
+test("configured SERPdive provider remains strict instead of falling back to auto", async () => {
+	const home = await createConfig({ provider: "serpdive" });
+	const child = runChild(`
+		const calls = [];
+		globalThis.fetch = async (url) => {
+			calls.push(String(url));
+			if (String(url) === "https://api.serpdive.com/v1/search") {
+				return new Response(JSON.stringify({ results: [{ url: "https://serpdive.example/source", title: "SERPdive source", content: "configured content" }] }), { status: 200 });
+			}
+			throw new Error("Auto fallback must not run: " + url);
+		};
+		const { search } = await import(${JSON.stringify(searchModuleUrl)});
+		const result = await search("configured serpdive", { provider: "auto" });
+		console.log(JSON.stringify({ provider: result.provider, answer: result.answer, calls }));
+	`, {
+		PI_CODING_AGENT_DIR: home,
+		SERPDIVE_API_KEY: "serpdive-test-key",
+	});
+
+	assert.equal(child.status, 0, child.stderr);
+	const output = JSON.parse(child.stdout.trim());
+	assert.equal(output.provider, "serpdive");
+	assert.match(output.answer, /configured content/);
+	assert.deepEqual(output.calls, ["https://api.serpdive.com/v1/search"]);
 });
 
 test("invalid searchRouting configuration fails loudly", async () => {
