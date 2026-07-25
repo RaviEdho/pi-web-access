@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Added explicit-only AnySearch direct search provider with anonymous access, optional `anysearchApiKey` / `ANYSEARCH_API_KEY` credentials, strict response validation, and request-time credential sources. Thanks Robin (@choronz) for #130.
 - Added SERPdive search provider with request-time credential sources, a free-tier `krill` default that never spends on install, opt-in `mako`/`moby` retrieval depth, locally applied domain filters, and recency documented as a query hint rather than a guaranteed freshness filter. Thanks Eden d'Alexis (@edendalexis) for #139.
 - Added opt-in ordered search routing through `searchRouting.providers` with explicit transient, quota, and network fallback kinds; named providers remain strict, single-provider config retains precedence, and exhausted routes preserve per-provider diagnostics. Thanks @smithyyang for #77.
 - Added optional self-hosted SearXNG search with SSRF-guarded base URLs, local-first auto selection, result filters, and documented `ssrf.allowRanges` opt-ins. Thanks to Marcos A. Núñez (@marnunez) for PR #107 and Avinash Kanaujiya (@avinashkanaujiya) for issue #105.

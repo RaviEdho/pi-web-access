@@ -44,6 +44,7 @@ import { isParallelAvailable } from "./parallel.ts";
 import { isTavilyAvailable } from "./tavily.ts";
 import { isSerpdiveAvailable } from "./serpdive.ts";
 import { isSearXNGAvailable } from "./searxng.ts";
+import { isAnySearchAvailable } from "./anysearch.ts";
 import { buildSearchErrorPlan, type SearchErrorDetails, type SearchErrorPlan } from "./render-search-error.ts";
 import { loadEnabledModelPatterns, modelMatchesEnabledPatterns } from "./summary-model-scope.ts";
 import {
@@ -89,6 +90,7 @@ function renderSearchErrorPlan(plan: SearchErrorPlan, expanded: boolean, theme: 
 }
 
 interface WebSearchConfig {
+	anysearchApiKey?: unknown;
 	provider?: string;
 	searchProvider?: string;
 	workflow?: string;
@@ -120,6 +122,7 @@ interface ProviderAvailability {
 	perplexity: boolean;
 	exa: boolean;
 	gemini: boolean;
+	anysearch: boolean;
 }
 
 type WebSearchWorkflow = "none" | "summary-review" | "auto-summary";
@@ -223,7 +226,7 @@ function normalizeProviderInput(value: unknown): SearchProvider | undefined {
 	if (value === undefined) return undefined;
 	if (typeof value !== "string") return "auto";
 	const normalized = value.trim().toLowerCase();
-	const valid: SearchProvider[] = ["auto", "openai", "brave", "parallel", "tavily", "searxng", "exa", "perplexity", "gemini", "serpdive"];
+	const valid: SearchProvider[] = ["auto", "openai", "brave", "parallel", "tavily", "searxng", "exa", "perplexity", "gemini", "serpdive", "anysearch"];
 	return valid.includes(normalized as SearchProvider) ? normalized as SearchProvider : "auto";
 }
 
@@ -276,6 +279,7 @@ async function getProviderAvailability(ctx: ExtensionContext): Promise<ProviderA
 		perplexity: isPerplexityAvailable(),
 		exa: isExaAvailable(),
 		gemini: isGeminiApiAvailable() || !!geminiWebAvail,
+		anysearch: isAnySearchAvailable(),
 	};
 }
 
@@ -1372,7 +1376,7 @@ export default function (pi: ExtensionAPI) {
 		name: toolNames.webSearch,
 		label: "Web Search",
 		description:
-			`Search the web using OpenAI, Brave, Parallel, Tavily, SearXNG, Exa, Perplexity, or Gemini. Returns an AI-synthesized answer with source citations. OpenAI search uses a Codex subscription or OpenAI API key. For comprehensive research, prefer queries (plural) with 2-4 varied angles over a single query — each query gets its own synthesized answer, so varying phrasing and scope gives much broader coverage. When includeContent is true, full page content is fetched in the background. Searches auto-open the interactive browser curator and stream results live; set workflow to "none" to skip curation or "auto-summary" for a model-generated summary without the browser curator. The configured provider is used when provider is omitted or set to auto; omit provider unless explicitly overriding it. Without a configured provider, auto-selects OpenAI when suitable and available, then Exa, Brave, Parallel, Tavily, Perplexity, Gemini API, or Gemini Web. When SearXNG is configured, it is preferred first for local/private search.`,
+			`Search the web using OpenAI, Brave, Parallel, Tavily, SearXNG, Exa, Perplexity, Gemini, or AnySearch. Returns an AI-synthesized answer with source citations. OpenAI search uses a Codex subscription or OpenAI API key. AnySearch is available only when explicitly selected. For comprehensive research, prefer queries (plural) with 2-4 varied angles over a single query — each query gets its own synthesized answer, so varying phrasing and scope gives much broader coverage. When includeContent is true, full page content is fetched in the background. Searches auto-open the interactive browser curator and stream results live; set workflow to "none" to skip curation or "auto-summary" for a model-generated summary without the browser curator. The configured provider is used when provider is omitted or set to auto; omit provider unless explicitly overriding it. Without a configured provider, auto-selects OpenAI when suitable and available, then Exa, Brave, Parallel, Tavily, Perplexity, Gemini API, or Gemini Web. When SearXNG is configured, it is preferred first for local/private search.`,
 		promptSnippet:
 			"Use for web research questions. Prefer {queries:[...]} with 2-4 varied angles over a single query for broader coverage. Omit provider unless explicitly overriding the configured default.",
 		parameters: Type.Object({
@@ -1385,7 +1389,7 @@ export default function (pi: ExtensionAPI) {
 			),
 			domainFilter: Type.Optional(Type.Array(Type.String(), { description: "Limit to domains (prefix with - to exclude)" })),
 			provider: Type.Optional(
-				StringEnum(["auto", "openai", "brave", "parallel", "tavily", "searxng", "exa", "perplexity", "gemini", "serpdive"], { description: "Search provider; omit this field (preferred) to use the configured provider, or use auto when none is configured" }),
+				StringEnum(["auto", "openai", "brave", "parallel", "tavily", "searxng", "exa", "perplexity", "gemini", "serpdive", "anysearch"], { description: "Search provider; omit this field (preferred) to use the configured provider, or use auto when none is configured" }),
 			),
 			workflow: Type.Optional(
 				StringEnum(["none", "summary-review", "auto-summary"], {
@@ -1930,7 +1934,7 @@ export default function (pi: ExtensionAPI) {
 			fetchContent: Type.Optional(Type.Boolean({ description: "Fetch up to 5 result pages for exact passage extraction." })),
 			recencyFilter: Type.Optional(StringEnum(["day", "week", "month", "year"], { description: "Filter by recency." })),
 			domainFilter: Type.Optional(Type.Array(Type.String(), { description: "Limit to domains; prefix with - to exclude." })),
-			provider: Type.Optional(StringEnum(["auto", "openai", "brave", "parallel", "tavily", "searxng", "exa", "perplexity", "gemini", "serpdive"], { description: "Search provider." })),
+			provider: Type.Optional(StringEnum(["auto", "openai", "brave", "parallel", "tavily", "searxng", "exa", "perplexity", "gemini", "serpdive", "anysearch"], { description: "Search provider." })),
 		}),
 		async execute(_callId, params, signal, _onUpdate, ctx) {
 			const claim = typeof params.claim === "string" ? params.claim.trim() : "";

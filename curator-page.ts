@@ -8,7 +8,7 @@ function safeInlineJSON(data: unknown): string {
 }
 
 function buildProviderButtons(
-	available: { openai: boolean; brave: boolean; parallel: boolean; tavily: boolean; serpdive: boolean; searxng: boolean; perplexity: boolean; exa: boolean; gemini: boolean },
+	available: { openai: boolean; brave: boolean; parallel: boolean; tavily: boolean; serpdive: boolean; searxng: boolean; perplexity: boolean; exa: boolean; gemini: boolean; anysearch: boolean },
 	selected: string,
 	hasInitialQueries: boolean,
 ): string {
@@ -22,6 +22,7 @@ function buildProviderButtons(
 		{ value: "searxng", label: "SearXNG", available: available.searxng },
 		{ value: "perplexity", label: "Perplexity", available: available.perplexity },
 		{ value: "gemini", label: "Gemini", available: available.gemini },
+		{ value: "anysearch", label: "AnySearch", available: available.anysearch },
 	];
 
 	return providers
@@ -40,7 +41,7 @@ export function generateCuratorPage(
 	queries: string[],
 	sessionToken: string,
 	timeout: number,
-	availableProviders: { openai: boolean; brave: boolean; parallel: boolean; tavily: boolean; serpdive: boolean; searxng: boolean; perplexity: boolean; exa: boolean; gemini: boolean },
+	availableProviders: { openai: boolean; brave: boolean; parallel: boolean; tavily: boolean; serpdive: boolean; searxng: boolean; perplexity: boolean; exa: boolean; gemini: boolean; anysearch: boolean },
 	defaultProvider: string,
 	searchProvider: string,
 	summaryModels: Array<{ value: string; label: string }>,
@@ -647,6 +648,11 @@ main {
   color: #f5c27b;
   background: rgba(245, 194, 123, 0.14);
   border-color: rgba(245, 194, 123, 0.3);
+}
+.provider-tag.provider-anysearch {
+  color: #f9c74f;
+  background: rgba(249, 199, 79, 0.14);
+  border-color: rgba(249, 199, 79, 0.3);
 }
 .provider-tag.provider-openai {
   color: #a6e3a1;
@@ -1396,7 +1402,7 @@ const SCRIPT = `(function() {
   var token = DATA.sessionToken;
   var timeoutSec = DATA.timeout;
   var queries = Array.isArray(DATA.queries) ? DATA.queries : [];
-  var providers = ["openai", "exa", "brave", "parallel", "tavily", "serpdive", "searxng", "perplexity", "gemini"];
+  var providers = ["openai", "exa", "brave", "parallel", "tavily", "serpdive", "searxng", "perplexity", "gemini", "anysearch"];
   var availProviders = DATA.availableProviders && typeof DATA.availableProviders === "object" ? DATA.availableProviders : {};
   var workflow = "summary-review";
   var initialDefaultProvider = typeof DATA.defaultProvider === "string" ? DATA.defaultProvider : "exa";
@@ -1605,6 +1611,7 @@ const SCRIPT = `(function() {
     if (provider === "perplexity") return "Perplexity";
     if (provider === "exa") return "Exa";
     if (provider === "gemini") return "Gemini";
+    if (provider === "anysearch") return "AnySearch";
     return "Unknown";
   }
 
