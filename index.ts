@@ -94,6 +94,7 @@ interface WebSearchConfig {
 	webSearch?: {
 		enabled?: boolean;
 	};
+	toolNames?: Partial<ToolNames>;
 	shortcuts?: {
 		curate?: string;
 		activity?: string;
@@ -157,9 +158,51 @@ function saveConfig(updates: Partial<WebSearchConfig>): void {
 	writeFileSync(WEB_SEARCH_CONFIG_PATH, JSON.stringify(config, null, 2) + "\n");
 }
 
+type ToolNames = {
+	webSearch: string;
+	sourceCheck: string;
+	fetchContent: string;
+	getSearchContent: string;
+};
+
+const DEFAULT_TOOL_NAMES: ToolNames = {
+	webSearch: "web_search",
+	sourceCheck: "source_check",
+	fetchContent: "fetch_content",
+	getSearchContent: "get_search_content",
+};
+const TOOL_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 const DEFAULT_SHORTCUTS = { curate: "ctrl+shift+s", activity: "ctrl+shift+w" };
 const DEFAULT_CURATOR_TIMEOUT_SECONDS = 20;
 const MAX_CURATOR_TIMEOUT_SECONDS = 600;
+
+function resolveToolNames(config: WebSearchConfig): ToolNames {
+	if (config.toolNames !== undefined && (!config.toolNames || typeof config.toolNames !== "object" || Array.isArray(config.toolNames))) {
+		throw new Error(`toolNames in ${WEB_SEARCH_CONFIG_PATH} must be an object`);
+	}
+	const names = { ...DEFAULT_TOOL_NAMES };
+	for (const key of Object.keys(DEFAULT_TOOL_NAMES) as Array<keyof ToolNames>) {
+		const value = config.toolNames?.[key];
+		if (value === undefined) continue;
+		if (typeof value !== "string") throw new Error(`toolNames.${key} in ${WEB_SEARCH_CONFIG_PATH} must be a string`);
+		const trimmed = value.trim();
+		if (!TOOL_NAME_PATTERN.test(trimmed)) {
+			throw new Error(`toolNames.${key} in ${WEB_SEARCH_CONFIG_PATH} must start with a letter and contain only letters, numbers, underscores, or hyphens`);
+		}
+		names[key] = trimmed;
+	}
+	const registeredKeys: Array<keyof ToolNames> = config.webSearch?.enabled === false
+		? ["fetchContent", "getSearchContent"]
+		: ["webSearch", "sourceCheck", "fetchContent", "getSearchContent"];
+	const seen = new Map<string, keyof ToolNames>();
+	for (const key of registeredKeys) {
+		const name = names[key];
+		const previous = seen.get(name);
+		if (previous) throw new Error(`toolNames.${key} duplicates toolNames.${previous} in ${WEB_SEARCH_CONFIG_PATH}`);
+		seen.set(name, key);
+	}
+	return names;
+}
 
 function loadConfigForExtensionInit(): WebSearchConfig {
 	try {
@@ -349,7 +392,7 @@ function formatSearchSummary(results: SearchResult[], answer: string): string {
 	return output;
 }
 
-function formatSourceCheckResult(artifact: ResearchArtifact): string {
+function formatSourceCheckResult(artifact: ResearchArtifact, getSearchContentTool = DEFAULT_TOOL_NAMES.getSearchContent): string {
 	const assessment = artifact.claims?.[0];
 	const lines = [`# Source check: ${artifact.query}`, ""];
 	if (assessment) {
@@ -365,7 +408,7 @@ function formatSourceCheckResult(artifact: ResearchArtifact): string {
 		lines.push("");
 	}
 	if (artifact.errors?.length) lines.push(`Search errors: ${artifact.errors.map((entry) => `${entry.query}: ${entry.error}`).join("; ")}`);
-	lines.push(`Artifact responseId: ${artifact.id} (retrievable via get_search_content).`);
+	lines.push(`Artifact responseId: ${artifact.id} (retrievable via ${getSearchContentTool}).`);
 	return lines.join("\n");
 }
 
@@ -610,6 +653,13 @@ function handleSessionChange(ctx: ExtensionContext): void {
 
 export default function (pi: ExtensionAPI) {
 	const initConfig = loadConfigForExtensionInit();
+	const toolNames = resolveToolNames(initConfig);
+	const storedContentSources = initConfig.webSearch?.enabled === false
+		? toolNames.fetchContent
+		: `${toolNames.webSearch}, ${toolNames.sourceCheck}, or ${toolNames.fetchContent}`;
+	const searchQueryDescription = initConfig.webSearch?.enabled === false
+		? "Get content for a stored search query"
+		: `Get content for this query (${toolNames.webSearch})`;
 	const curateKey = initConfig.shortcuts?.curate || DEFAULT_SHORTCUTS.curate;
 	const activityKey = initConfig.shortcuts?.activity || DEFAULT_SHORTCUTS.activity;
 
@@ -1296,10 +1346,10 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	if (initConfig.webSearch?.enabled !== false) pi.registerTool({
-		name: "web_search",
+		name: toolNames.webSearch,
 		label: "Web Search",
 		description:
-			`Search the web using OpenAI, Brave, Parallel, Tavily, Exa, Perplexity, or Gemini. Returns an AI-synthesized answer with source citations. OpenAI web_search uses a Codex subscription or OpenAI API key. For comprehensive research, prefer queries (plural) with 2-4 varied angles over a single query — each query gets its own synthesized answer, so varying phrasing and scope gives much broader coverage. When includeContent is true, full page content is fetched in the background. Searches auto-open the interactive browser curator and stream results live; set workflow to "none" to skip curation or "auto-summary" for a model-generated summary without the browser curator. The configured provider is used when provider is omitted or set to auto; omit provider unless explicitly overriding it. Without a configured provider, auto-selects OpenAI when suitable and available, then Exa, Brave, Parallel, Tavily, Perplexity, Gemini API, or Gemini Web.`,
+			`Search the web using OpenAI, Brave, Parallel, Tavily, Exa, Perplexity, or Gemini. Returns an AI-synthesized answer with source citations. OpenAI search uses a Codex subscription or OpenAI API key. For comprehensive research, prefer queries (plural) with 2-4 varied angles over a single query — each query gets its own synthesized answer, so varying phrasing and scope gives much broader coverage. When includeContent is true, full page content is fetched in the background. Searches auto-open the interactive browser curator and stream results live; set workflow to "none" to skip curation or "auto-summary" for a model-generated summary without the browser curator. The configured provider is used when provider is omitted or set to auto; omit provider unless explicitly overriding it. Without a configured provider, auto-selects OpenAI when suitable and available, then Exa, Brave, Parallel, Tavily, Perplexity, Gemini API, or Gemini Web.`,
 		promptSnippet:
 			"Use for web research questions. Prefer {queries:[...]} with 2-4 varied angles over a single query for broader coverage. Omit provider unless explicitly overriding the configured default.",
 		parameters: Type.Object({
@@ -1846,7 +1896,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	if (initConfig.webSearch?.enabled !== false) pi.registerTool({
-		name: "source_check",
+		name: toolNames.sourceCheck,
 		label: "Source Check",
 		description: "Check a claim against web sources and return a bounded machine-readable research artifact with exact passage citations.",
 		promptSnippet: "Verify a claim with structured source evidence and passage-level citations.",
@@ -1935,16 +1985,16 @@ export default function (pi: ExtensionAPI) {
 				artifact,
 			});
 			return {
-				content: [{ type: "text", text: formatSourceCheckResult(artifact) }],
+				content: [{ type: "text", text: formatSourceCheckResult(artifact, toolNames.getSearchContent) }],
 				details: { responseId: artifact.id, artifact, sourceCount: artifact.sources.length, passageCount: artifact.passages.length },
 			};
 		},
 	});
 
 	pi.registerTool({
-		name: "fetch_content",
+		name: toolNames.fetchContent,
 		label: "Fetch Content",
-		description: "Fetch URL(s) and extract readable content as markdown. Supports YouTube video transcripts (with thumbnail), GitHub repository contents, and local video files (with frame thumbnail). Video frames can be extracted via timestamp/range or sampled across the entire video with frames alone. Falls back to Gemini for pages that block bots or fail Readability extraction. For YouTube and video files: ALWAYS pass the user's specific question via the prompt parameter — this directs the AI to focus on that aspect of the video, producing much better results than a generic extraction. Content is always stored and can be retrieved with get_search_content.",
+		description: `Fetch URL(s) and extract readable content as markdown. Supports YouTube video transcripts (with thumbnail), GitHub repository contents, and local video files (with frame thumbnail). Video frames can be extracted via timestamp/range or sampled across the entire video with frames alone. Falls back to Gemini for pages that block bots or fail Readability extraction. For YouTube and video files: ALWAYS pass the user's specific question via the prompt parameter — this directs the AI to focus on that aspect of the video, producing much better results than a generic extraction. Content is always stored and can be retrieved with ${toolNames.getSearchContent}.`,
 		promptSnippet:
 			"Use to extract readable content from URL(s), YouTube, GitHub repos, or local videos. For video questions, pass the user's exact question in prompt.",
 		parameters: Type.Object({
@@ -2016,7 +2066,7 @@ export default function (pi: ExtensionAPI) {
 
 				if (truncated) {
 					output += `\n\n---\nShowing ${MAX_INLINE_CONTENT} of ${fullLength} chars. ` +
-						`Use get_search_content({ responseId: "${responseId}", urlIndex: 0, offset: ${MAX_INLINE_CONTENT} }) for the next slice.`;
+						`Use ${toolNames.getSearchContent}({ responseId: "${responseId}", urlIndex: 0, offset: ${MAX_INLINE_CONTENT} }) for the next slice.`;
 				}
 
 				const content: Array<{ type: string; text?: string; data?: string; mimeType?: string }> = [];
@@ -2060,7 +2110,7 @@ export default function (pi: ExtensionAPI) {
 					output += `- ${title || url} (${content.length} chars)\n`;
 				}
 			}
-			output += `\n---\nUse get_search_content({ responseId: "${responseId}", urlIndex: 0 }) to retrieve bounded content slices.`;
+			output += `\n---\nUse ${toolNames.getSearchContent}({ responseId: "${responseId}", urlIndex: 0 }) to retrieve bounded content slices.`;
 
 			return {
 				content: [{ type: "text", text: output }],
@@ -2193,14 +2243,14 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.registerTool({
-		name: "get_search_content",
+		name: toolNames.getSearchContent,
 		label: "Get Search Content",
-		description: "Retrieve bounded content slices from a previous web_search or fetch_content call.",
+		description: `Retrieve bounded content slices from a previous ${storedContentSources} call.`,
 		promptSnippet:
-			"Use after web_search/fetch_content to retrieve stored content via responseId plus query/url selectors. Fetched URL content is returned in bounded slices; use offset/limit to continue.",
+			`Use after ${storedContentSources} to retrieve stored content via responseId plus query/url selectors. Fetched URL content is returned in bounded slices; use offset/limit to continue.`,
 		parameters: Type.Object({
-			responseId: Type.String({ description: "The responseId from web_search or fetch_content" }),
-			query: Type.Optional(Type.String({ description: "Get content for this query (web_search)" })),
+			responseId: Type.String({ description: `The responseId from ${storedContentSources}` }),
+			query: Type.Optional(Type.String({ description: searchQueryDescription })),
 			queryIndex: Type.Optional(Type.Number({ description: "Get content for query at index" })),
 			url: Type.Optional(Type.String({ description: "Get content for this URL" })),
 			urlIndex: Type.Optional(Type.Number({ description: "Get content for URL at index" })),
@@ -2353,7 +2403,7 @@ export default function (pi: ExtensionAPI) {
 				if (hasMore || offset > 0) {
 					text += `\n\n---\nShowing chars ${offset}-${endOffset} of ${urlData.content.length}.`;
 					if (hasMore) {
-						text += ` Use get_search_content({ responseId: "${params.responseId}", urlIndex: ${selectedUrlIndex}, offset: ${endOffset}, limit: ${limit} }) for the next slice.`;
+						text += ` Use ${toolNames.getSearchContent}({ responseId: "${params.responseId}", urlIndex: ${selectedUrlIndex}, offset: ${endOffset}, limit: ${limit} }) for the next slice.`;
 					}
 				}
 
@@ -2720,10 +2770,10 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			const label = newWorkflow === "none"
-				? "Curator disabled — web_search will return raw results"
+				? `Curator disabled — ${toolNames.webSearch} will return raw results`
 				: newWorkflow === "auto-summary"
-					? "Auto-summary enabled — web_search will generate a summary without opening the curator"
-					: "Curator enabled — web_search will open curator and auto-generate a summary draft";
+					? `Auto-summary enabled — ${toolNames.webSearch} will generate a summary without opening the curator`
+					: `Curator enabled — ${toolNames.webSearch} will open curator and auto-generate a summary draft`;
 			pi.sendMessage({
 				customType: "curator-config",
 				content: [{ type: "text", text: label }],
