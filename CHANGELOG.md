@@ -28,6 +28,7 @@ All notable changes to this project will be documented in this file.
 - Preserved OpenAI/Codex answers even when the provider returns no source citations instead of replacing them with `No results found`. Thanks AstroHan (@Astro-Han) for reporting #117.
 - Prevented browser auto-open failures from crashing the curator fallback path with `ReferenceError: sendCuratorFallbackUpdate is not defined`. Thanks Nisarg Patel (@pnisarg) for PR #121; Apostol Apostolov (@apoapostolov), @2seoik, and Demetre Dzmanashvili (@demetere) for related PRs #133, #120, and #114; and @ruanlinxin, @bluewatercg, @tonydiep, and @pinion05 for reports #103, #116, #126, and #127.
 - Added a focused SSRF error hint for TUN/fake-IP `198.18.0.0/15` addresses that points users to the existing `ssrf.allowRanges` opt-in. Thanks Aaron (@BenjaminAaron196) for PR #141 and AstroHan (@Astro-Han) for reporting #134.
+- Registered the web activity widget with Pi's supported string-array API to prevent `content is not a function` crashes when toggling non-default shortcuts. Thanks @llllllllqq for reporting #158.
 - Registered the web activity widget as a Pi component factory instead of passing a `Text` instance directly. Thanks Trey Hoover (@treyhoover) for PR #132.
 
 ## [0.13.0] - 2026-06-25
