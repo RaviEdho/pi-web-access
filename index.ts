@@ -320,6 +320,9 @@ function stripThumbnails(results: ExtractedContent[]): ExtractedContent[] {
 }
 
 function formatSearchSummary(results: SearchResult[], answer: string): string {
+	if (results.length === 0) {
+		return answer ? `${answer}\n\n---\n\n**Sources:**\nNo sources returned.` : "No results found.";
+	}
 	let output = answer ? `${answer}\n\n---\n\n**Sources:**\n` : "";
 	output += results.map((r, i) => `${i + 1}. ${r.title}\n   ${r.url}`).join("\n\n");
 	return output;
@@ -877,7 +880,6 @@ export default function (pi: ExtensionAPI) {
 						: `## Query: "${query}"\n\n`;
 				}
 				if (error) output += `Error: ${error}\n\n`;
-				else if (results.length === 0) output += "No results found.\n\n";
 				else output += formatSearchSummary(results, answer) + "\n\n";
 			}
 		}
