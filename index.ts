@@ -5,7 +5,7 @@ import { StringEnum, complete, type Api, type ImageContent, type Model, type Tex
 import type { ExtractedContent, ExtractOptions } from "./extract.ts";
 import { normalizeFetchContentParams } from "./fetch-params.ts";
 import { clearCloneCache } from "./github-extract.ts";
-import { getConfiguredSearchRouting, search, type SearchProvider, type ResolvedSearchProvider } from "./gemini-search.ts";
+import { getConfiguredSearchRouting, search, type AttributedSearchResponse, type SearchProvider, type ResolvedSearchProvider } from "./gemini-search.ts";
 import type { SearchResult } from "./perplexity.ts";
 import { formatSeconds, getWebSearchConfigDir, getWebSearchConfigPath } from "./utils.ts";
 import {
@@ -20,7 +20,7 @@ import {
 	type StoredSearchData,
 } from "./storage.ts";
 import { activityMonitor, type ActivityEntry } from "./activity.ts";
-import { startCuratorServer, type CuratorServerHandle } from "./curator-server.ts";
+import { startCuratorServer, type CuratorSearchEntry, type CuratorServerHandle, type IndexedCuratorSearchEntry } from "./curator-server.ts";
 import {
 	buildDeterministicSummary,
 	generateSummaryDraft,
@@ -118,6 +118,7 @@ interface WebSearchConfig {
 }
 
 interface ProviderAvailability {
+	all: boolean;
 	openai: boolean;
 	brave: boolean;
 	parallel: boolean;
@@ -133,11 +134,12 @@ interface ProviderAvailability {
 
 type WebSearchWorkflow = "none" | "summary-review" | "auto-summary";
 type CuratorWorkflow = "summary-review";
+type CuratorProvider = Exclude<SearchProvider, "auto">;
 type SummaryWorkflow = "summary-review" | "auto-summary";
 
 interface CuratorBootstrap {
 	availableProviders: ProviderAvailability;
-	defaultProvider: ResolvedSearchProvider;
+	defaultProvider: CuratorProvider;
 	timeoutSeconds: number;
 }
 
@@ -232,7 +234,7 @@ function normalizeProviderInput(value: unknown): SearchProvider | undefined {
 	if (value === undefined) return undefined;
 	if (typeof value !== "string") return "auto";
 	const normalized = value.trim().toLowerCase();
-	const valid: SearchProvider[] = ["auto", "openai", "brave", "parallel", "tinyfish", "tavily", "searxng", "exa", "perplexity", "gemini", "serpdive", "anysearch"];
+	const valid: SearchProvider[] = ["auto", "all", "openai", "brave", "parallel", "tinyfish", "tavily", "searxng", "exa", "perplexity", "gemini", "serpdive", "anysearch"];
 	return valid.includes(normalized as SearchProvider) ? normalized as SearchProvider : "auto";
 }
 
@@ -281,7 +283,8 @@ function getCuratorTimeoutSeconds(): number {
 
 async function getProviderAvailability(ctx: ExtensionContext): Promise<ProviderAvailability> {
 	const geminiWebAvail = await isGeminiWebAvailable();
-	return {
+	const geminiApiAvail = isGeminiApiAvailable();
+	const providers = {
 		openai: await isOpenAISearchAvailable(ctx),
 		brave: isBraveAvailable(),
 		parallel: isParallelAvailable(),
@@ -291,8 +294,12 @@ async function getProviderAvailability(ctx: ExtensionContext): Promise<ProviderA
 		searxng: isSearXNGAvailable(),
 		perplexity: isPerplexityAvailable(),
 		exa: isExaAvailable(),
-		gemini: isGeminiApiAvailable() || !!geminiWebAvail,
+		gemini: geminiApiAvail || !!geminiWebAvail,
 		anysearch: isAnySearchAvailable(),
+	};
+	return {
+		all: Object.entries(providers).some(([provider, available]) => provider !== "anysearch" && provider !== "gemini" && available) || geminiApiAvail,
+		...providers,
 	};
 }
 
@@ -336,7 +343,7 @@ function resolveProvider(
 	requested: unknown,
 	available: ProviderAvailability,
 	options?: Pick<PendingCurate, "numResults" | "recencyFilter">,
-): ResolvedSearchProvider {
+): CuratorProvider {
 	const provider = resolveRequestedProvider(requested);
 	const preferOpenAI = shouldPreferOpenAI(options);
 
@@ -348,6 +355,9 @@ function resolveProvider(
 			}
 			return routing.providers[0];
 		}
+		return firstAvailableProvider(available, preferOpenAI, "exa");
+	}
+	if (provider === "all" && !available.all) {
 		return firstAvailableProvider(available, preferOpenAI, "exa");
 	}
 	if (provider === "openai" && !available.openai) {
@@ -396,6 +406,7 @@ interface PendingCurate {
 	workflow: CuratorWorkflow;
 	summaryContext: SummaryGenerationContext;
 	searchResults: Map<number, QueryResultData>;
+	resultSlots: Map<number, number>;
 	allInlineContent: ExtractedContent[];
 	queryList: string[];
 	includeContent: boolean;
@@ -403,7 +414,7 @@ interface PendingCurate {
 	recencyFilter?: "day" | "week" | "month" | "year";
 	domainFilter?: string[];
 	availableProviders: ProviderAvailability;
-	defaultProvider: ResolvedSearchProvider;
+	defaultProvider: CuratorProvider;
 	searchProvider: SearchProvider;
 	summaryModels: Array<{ value: string; label: string }>;
 	defaultSummaryModel: string | null;
@@ -615,6 +626,40 @@ function openInGlimpse(
 function extractDomain(url: string): string {
 	try { return new URL(url).hostname; }
 	catch { return url; }
+}
+
+function toCuratorSearchEntries(response: AttributedSearchResponse): CuratorSearchEntry[] {
+	const providerResponses = response.provider === "all" && response.providerResponses?.length
+		? response.providerResponses
+		: [response];
+	const entries: CuratorSearchEntry[] = providerResponses.map(result => ({
+		answer: result.answer,
+		results: result.results.map(source => ({ ...source, domain: extractDomain(source.url) })),
+		provider: result.provider,
+	}));
+	for (const failure of response.providerErrors ?? []) {
+		entries.push({
+			answer: "",
+			results: [],
+			provider: failure.provider,
+			error: failure.error,
+		});
+	}
+	return entries;
+}
+
+function indexedCuratorEntryToQueryResult(entry: IndexedCuratorSearchEntry): QueryResultData {
+	return {
+		query: entry.query,
+		answer: entry.answer,
+		results: entry.results.map(source => ({
+			title: source.title,
+			url: source.url,
+			snippet: source.snippet ?? "",
+		})),
+		error: entry.error ?? null,
+		provider: entry.provider,
+	};
 }
 
 function updateWidget(ctx: ExtensionContext): void {
@@ -1237,36 +1282,29 @@ export default function (pi: ExtensionAPI) {
 							console.error(`Failed to persist default provider: ${message}`);
 						}
 					},
-					async onAddSearch(query, queryIndex, provider) {
+					async onAddSearch(query, provider) {
 						if (pendingCurates.get(callId) !== pc) throw new Error("Curator session is no longer active.");
 						const normalizedProvider = normalizeProviderInput(provider);
 						const requestedProvider = !normalizedProvider || normalizedProvider === "auto"
 							? pc.searchProvider
 							: normalizedProvider;
-						try {
-							const { answer, results, inlineContent, provider: actualProvider } = await search(query, {
-								provider: requestedProvider,
-								numResults: pc.numResults,
-								recencyFilter: pc.recencyFilter,
-								domainFilter: pc.domainFilter,
-								includeContent: pc.includeContent,
-								signal: addSearchSignal,
-								extensionContext: ctx,
-							});
-							if (pendingCurates.get(callId) !== pc) throw new Error("Curator session is no longer active.");
-							pc.searchResults.set(queryIndex, { query, answer, results, error: null, provider: actualProvider });
-							if (inlineContent) pc.allInlineContent.push(...inlineContent);
-							return {
-								answer,
-								results: results.map(r => ({ title: r.title, url: r.url, domain: extractDomain(r.url) })),
-								provider: actualProvider,
-							};
-						} catch (err) {
-							const message = err instanceof Error ? err.message : String(err);
-							if (pendingCurates.get(callId) === pc) {
-								pc.searchResults.set(queryIndex, { query, answer: "", results: [], error: message, provider: requestedProvider });
-							}
-							throw err;
+						const response = await search(query, {
+							provider: requestedProvider,
+							numResults: pc.numResults,
+							recencyFilter: pc.recencyFilter,
+							domainFilter: pc.domainFilter,
+							includeContent: pc.includeContent,
+							signal: addSearchSignal,
+							extensionContext: ctx,
+						});
+						if (pendingCurates.get(callId) !== pc) throw new Error("Curator session is no longer active.");
+						if (response.inlineContent) pc.allInlineContent.push(...response.inlineContent);
+						return toCuratorSearchEntries(response);
+					},
+					onAddSearchResults(entries) {
+						if (pendingCurates.get(callId) !== pc) return;
+						for (const entry of entries) {
+							pc.searchResults.set(entry.queryIndex, indexedCuratorEntryToQueryResult(entry));
 						}
 					},
 					async onRewriteQuery(query, rewriteSignal) {
@@ -1285,13 +1323,16 @@ export default function (pi: ExtensionAPI) {
 			pc.curatorUrl = handle.url;
 
 			for (const [qi, data] of pc.searchResults) {
+				const slotIndex = pc.resultSlots.get(qi);
 				if (data.error) {
-					handle.pushError(qi, data.error, data.provider);
+					handle.pushError(qi, data.error, data.provider, { query: data.query, slotIndex });
 				} else {
 					handle.pushResult(qi, {
 						answer: data.answer,
-						results: data.results.map(r => ({ title: r.title, url: r.url, domain: extractDomain(r.url) })),
+						results: data.results.map(r => ({ ...r, domain: extractDomain(r.url) })),
 						provider: data.provider || pc.defaultProvider,
+						query: data.query,
+						slotIndex,
 					});
 				}
 			}
@@ -1389,7 +1430,7 @@ export default function (pi: ExtensionAPI) {
 		name: toolNames.webSearch,
 		label: "Web Search",
 		description:
-			`Search the web using OpenAI, Brave, Parallel, TinyFish, Tavily, SearXNG, Exa, Perplexity, Gemini, or AnySearch. Returns an AI-synthesized answer with source citations. OpenAI search uses a Codex subscription or OpenAI API key. AnySearch is available only when explicitly selected. For comprehensive research, prefer queries (plural) with 2-4 varied angles over a single query — each query gets its own synthesized answer, so varying phrasing and scope gives much broader coverage. When includeContent is true, full page content is fetched in the background. Searches auto-open the interactive browser curator and stream results live; set workflow to "none" to skip curation or "auto-summary" for a model-generated summary without the browser curator. The configured provider is used when provider is omitted or set to auto; omit provider unless explicitly overriding it. Without a configured provider, auto-selects OpenAI when suitable and available, then Exa, Brave, Parallel, TinyFish, Tavily, Perplexity, Gemini API, or Gemini Web. When SearXNG is configured, it is preferred first for local/private search.`,
+			`Search the web using OpenAI, Brave, Parallel, TinyFish, Tavily, SearXNG, Exa, Perplexity, Gemini, or AnySearch. Use provider "all" to search every eligible provider except AnySearch simultaneously and combine their responses. Returns an AI-synthesized answer with source citations. OpenAI search uses a Codex subscription or OpenAI API key. AnySearch is available only when explicitly selected. For comprehensive research, prefer queries (plural) with 2-4 varied angles over a single query — each query gets its own synthesized answer, so varying phrasing and scope gives much broader coverage. When includeContent is true, full page content is fetched in the background. Searches auto-open the interactive browser curator and stream results live; set workflow to "none" to skip curation or "auto-summary" for a model-generated summary without the browser curator. The configured provider is used when provider is omitted or set to auto; omit provider unless explicitly overriding it. Without a configured provider, auto-selects OpenAI when suitable and available, then Exa, Brave, Parallel, TinyFish, Tavily, Perplexity, Gemini API, or Gemini Web. When SearXNG is configured, it is preferred first for local/private search.`,
 		promptSnippet:
 			"Use for web research questions. Prefer {queries:[...]} with 2-4 varied angles over a single query for broader coverage. Omit provider unless explicitly overriding the configured default.",
 		parameters: Type.Object({
@@ -1402,7 +1443,7 @@ export default function (pi: ExtensionAPI) {
 			),
 			domainFilter: Type.Optional(Type.Array(Type.String(), { description: "Limit to domains (prefix with - to exclude)" })),
 			provider: Type.Optional(
-				StringEnum(["auto", "openai", "brave", "parallel", "tinyfish", "tavily", "searxng", "exa", "perplexity", "gemini", "serpdive", "anysearch"], { description: "Search provider; omit this field (preferred) to use the configured provider, or use auto when none is configured" }),
+				StringEnum(["auto", "all", "openai", "brave", "parallel", "tinyfish", "tavily", "searxng", "exa", "perplexity", "gemini", "serpdive", "anysearch"], { description: "Search provider; use all to search every eligible provider except AnySearch simultaneously, omit this field (preferred) to use the configured provider, or use auto when none is configured" }),
 			),
 			workflow: Type.Optional(
 				StringEnum(["none", "summary-review", "auto-summary"], {
@@ -1444,7 +1485,9 @@ export default function (pi: ExtensionAPI) {
 				});
 				const includeContent = params.includeContent ?? false;
 				const searchResults = new Map<number, QueryResultData>();
+				const resultSlots = new Map<number, number>();
 				const allInlineContent: ExtractedContent[] = [];
+				let nextResultIndex = queryList.length;
 				const searchAbort = new AbortController();
 				const searchSignal = signal
 					? AbortSignal.any([signal, searchAbort.signal])
@@ -1475,6 +1518,7 @@ export default function (pi: ExtensionAPI) {
 					workflow: curatorWorkflow,
 					summaryContext,
 					searchResults,
+					resultSlots,
 					allInlineContent,
 					queryList,
 					includeContent,
@@ -1534,7 +1578,7 @@ export default function (pi: ExtensionAPI) {
 					});
 					const requestedProvider = pc.searchProvider;
 					try {
-						const { answer, results, inlineContent, provider } = await search(queryList[qi], {
+						const response = await search(queryList[qi], {
 							provider: requestedProvider,
 							numResults: params.numResults,
 							recencyFilter,
@@ -1544,23 +1588,35 @@ export default function (pi: ExtensionAPI) {
 							extensionContext: ctx,
 						});
 						if (signal?.aborted || cancelled || searchAbort.signal.aborted) break;
-						searchResults.set(qi, { query: queryList[qi], answer, results, error: null, provider });
-						if (inlineContent) allInlineContent.push(...inlineContent);
+						if (response.inlineContent) allInlineContent.push(...response.inlineContent);
+						const entries = toCuratorSearchEntries(response);
 						const curator = activeCurators.get(callId);
-						if (curator) {
-							curator.pushResult(qi, {
-								answer,
-								results: results.map(r => ({ title: r.title, url: r.url, domain: extractDomain(r.url) })),
-								provider,
-							});
+						for (let entryIndex = 0; entryIndex < entries.length; entryIndex++) {
+							const entry = entries[entryIndex];
+							const resultIndex = entryIndex === 0 ? qi : nextResultIndex++;
+							const indexedEntry: IndexedCuratorSearchEntry = {
+								...entry,
+								queryIndex: resultIndex,
+								query: queryList[qi],
+							};
+							searchResults.set(resultIndex, indexedCuratorEntryToQueryResult(indexedEntry));
+							resultSlots.set(resultIndex, qi);
+							if (curator) {
+								if (entry.error) {
+									curator.pushError(resultIndex, entry.error, entry.provider, { query: queryList[qi], slotIndex: qi });
+								} else {
+									curator.pushResult(resultIndex, { ...entry, query: queryList[qi], slotIndex: qi });
+								}
+							}
 						}
 					} catch (err) {
 						if (signal?.aborted || cancelled || searchAbort.signal.aborted) break;
 						const message = err instanceof Error ? err.message : String(err);
 						searchResults.set(qi, { query: queryList[qi], answer: "", results: [], error: message, provider: requestedProvider });
+						resultSlots.set(qi, qi);
 						const curator = activeCurators.get(callId);
 						if (curator) {
-							curator.pushError(qi, message, requestedProvider);
+							curator.pushError(qi, message, requestedProvider, { query: queryList[qi], slotIndex: qi });
 						}
 					}
 				}
@@ -1949,7 +2005,7 @@ export default function (pi: ExtensionAPI) {
 			fetchContent: Type.Optional(Type.Boolean({ description: "Fetch up to 5 result pages for exact passage extraction." })),
 			recencyFilter: Type.Optional(StringEnum(["day", "week", "month", "year"], { description: "Filter by recency." })),
 			domainFilter: Type.Optional(Type.Array(Type.String(), { description: "Limit to domains; prefix with - to exclude." })),
-			provider: Type.Optional(StringEnum(["auto", "openai", "brave", "parallel", "tinyfish", "tavily", "searxng", "exa", "perplexity", "gemini", "serpdive", "anysearch"], { description: "Search provider." })),
+			provider: Type.Optional(StringEnum(["auto", "all", "openai", "brave", "parallel", "tinyfish", "tavily", "searxng", "exa", "perplexity", "gemini", "serpdive", "anysearch"], { description: "Search provider; all searches every eligible provider except AnySearch simultaneously." })),
 		}),
 		async execute(_callId, params, signal, _onUpdate, ctx) {
 			const claim = typeof params.claim === "string" ? params.claim.trim() : "";
@@ -2558,7 +2614,7 @@ export default function (pi: ExtensionAPI) {
 			const availableProviders = bootstrap.availableProviders;
 			const initialProvider = bootstrap.defaultProvider;
 			const curatorTimeoutSeconds = bootstrap.timeoutSeconds;
-			let currentProvider = initialProvider;
+			let currentProvider: CuratorProvider = initialProvider;
 			const rawSearchProvider = normalizeProviderInput(loadConfig().provider ?? "auto") ?? "auto";
 			let currentSearchProvider: SearchProvider = rawSearchProvider === "auto" ? "auto" : initialProvider;
 			const summaryContext: SummaryGenerationContext = {
@@ -2670,7 +2726,7 @@ export default function (pi: ExtensionAPI) {
 								console.error(`Failed to persist default provider: ${message}`);
 							}
 						},
-						async onAddSearch(query, queryIndex, provider) {
+						async onAddSearch(query, provider) {
 							if (commandHandle && !isCommandActive()) {
 								throw new Error("Curator session is no longer active.");
 							}
@@ -2678,27 +2734,20 @@ export default function (pi: ExtensionAPI) {
 							const requestedProvider = !normalizedProvider || normalizedProvider === "auto"
 								? currentSearchProvider
 								: normalizedProvider;
-							try {
-								const { answer, results, provider: actualProvider } = await search(query, {
-									provider: requestedProvider,
-									signal: searchAbort.signal,
-									extensionContext: ctx,
-								});
-								if (commandHandle && !isCommandActive()) {
-									throw new Error("Curator session is no longer active.");
-								}
-								collected.set(queryIndex, { query, answer, results, error: null, provider: actualProvider });
-								return {
-									answer,
-									results: results.map(r => ({ title: r.title, url: r.url, domain: extractDomain(r.url) })),
-									provider: actualProvider,
-								};
-							} catch (err) {
-								const message = err instanceof Error ? err.message : String(err);
-								if (!commandHandle || isCommandActive()) {
-									collected.set(queryIndex, { query, answer: "", results: [], error: message, provider: requestedProvider });
-								}
-								throw err;
+							const response = await search(query, {
+								provider: requestedProvider,
+								signal: searchAbort.signal,
+								extensionContext: ctx,
+							});
+							if (commandHandle && !isCommandActive()) {
+								throw new Error("Curator session is no longer active.");
+							}
+							return toCuratorSearchEntries(response);
+						},
+						onAddSearchResults(entries) {
+							if (commandHandle && !isCommandActive()) return;
+							for (const entry of entries) {
+								collected.set(entry.queryIndex, indexedCuratorEntryToQueryResult(entry));
 							}
 						},
 						async onRewriteQuery(query, rewriteSignal) {
@@ -2748,26 +2797,37 @@ export default function (pi: ExtensionAPI) {
 
 				if (queries.length > 0) {
 					(async () => {
+						let nextResultIndex = queries.length;
 						for (let qi = 0; qi < queries.length; qi++) {
 							if (aborted || !isCommandActive()) break;
 							const requestedProvider = currentSearchProvider;
 							try {
-								const { answer, results, provider } = await search(queries[qi], {
+								const response = await search(queries[qi], {
 									provider: requestedProvider,
 									signal: searchAbort.signal,
 									extensionContext: ctx,
 								});
 								if (aborted || !isCommandActive()) break;
-								handle.pushResult(qi, {
-									answer,
-									results: results.map(r => ({ title: r.title, url: r.url, domain: extractDomain(r.url) })),
-									provider,
-								});
-								collected.set(qi, { query: queries[qi], answer, results, error: null, provider });
+								const entries = toCuratorSearchEntries(response);
+								for (let entryIndex = 0; entryIndex < entries.length; entryIndex++) {
+									const entry = entries[entryIndex];
+									const resultIndex = entryIndex === 0 ? qi : nextResultIndex++;
+									const indexedEntry: IndexedCuratorSearchEntry = {
+										...entry,
+										queryIndex: resultIndex,
+										query: queries[qi],
+									};
+									collected.set(resultIndex, indexedCuratorEntryToQueryResult(indexedEntry));
+									if (entry.error) {
+										handle.pushError(resultIndex, entry.error, entry.provider, { query: queries[qi], slotIndex: qi });
+									} else {
+										handle.pushResult(resultIndex, { ...entry, query: queries[qi], slotIndex: qi });
+									}
+								}
 							} catch (err) {
 								if (aborted || !isCommandActive()) break;
 								const message = err instanceof Error ? err.message : String(err);
-								handle.pushError(qi, message, requestedProvider);
+								handle.pushError(qi, message, requestedProvider, { query: queries[qi], slotIndex: qi });
 								collected.set(qi, { query: queries[qi], answer: "", results: [], error: message, provider: requestedProvider });
 							}
 						}
