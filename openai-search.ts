@@ -17,6 +17,7 @@ const AUTH_MODEL_CANDIDATES = [
 
 interface WebSearchConfig {
 	openaiApiKey?: unknown;
+	openaiResponsesUrl?: unknown;
 }
 
 interface OpenAIAuth {
@@ -24,6 +25,7 @@ interface OpenAIAuth {
 	apiKey: string;
 	model: string;
 	headers: Record<string, string>;
+	responsesUrl: string;
 }
 
 interface NormalizedDomainFilters {
@@ -110,7 +112,24 @@ function extractAccountId(token: string): string | undefined {
 	return typeof id === "string" && id.trim().length > 0 ? id.trim() : undefined;
 }
 
-async function resolvePiAuth(ctx: ExtensionContext): Promise<OpenAIAuth | undefined> {
+function resolveConfiguredResponsesUrl(value: unknown): string {
+	if (value === undefined) return OPENAI_RESPONSES_URL;
+	if (typeof value !== "string" || value.trim().length === 0) {
+		throw new Error(`openaiResponsesUrl in ${CONFIG_PATH} must be an absolute http(s) URL`);
+	}
+	let url: URL;
+	try {
+		url = new URL(value.trim());
+	} catch {
+		throw new Error(`openaiResponsesUrl in ${CONFIG_PATH} must be an absolute http(s) URL`);
+	}
+	if (url.protocol !== "https:" && url.protocol !== "http:") {
+		throw new Error(`openaiResponsesUrl in ${CONFIG_PATH} must use http or https`);
+	}
+	return url.toString();
+}
+
+async function resolvePiAuth(ctx: ExtensionContext, responsesUrl: string): Promise<OpenAIAuth | undefined> {
 	for (const candidate of AUTH_MODEL_CANDIDATES) {
 		for (const modelId of candidate.models) {
 			try {
@@ -123,6 +142,7 @@ async function resolvePiAuth(ctx: ExtensionContext): Promise<OpenAIAuth | undefi
 						apiKey: resolved.apiKey,
 						model: modelId,
 						headers: resolved.headers ?? {},
+						responsesUrl,
 					};
 				}
 			} catch {
@@ -133,12 +153,13 @@ async function resolvePiAuth(ctx: ExtensionContext): Promise<OpenAIAuth | undefi
 }
 
 export async function resolveOpenAIAuth(ctx?: ExtensionContext, signal?: AbortSignal): Promise<OpenAIAuth | undefined> {
+	const config = loadConfig();
+	const responsesUrl = resolveConfiguredResponsesUrl(config.openaiResponsesUrl);
 	if (ctx) {
-		const auth = await resolvePiAuth(ctx);
+		const auth = await resolvePiAuth(ctx, responsesUrl);
 		if (auth) return auth;
 	}
 
-	const config = loadConfig();
 	const hasSource = hasCredentialSource({
 		provider: "OpenAI",
 		configuredValue: config.openaiApiKey,
@@ -152,13 +173,14 @@ export async function resolveOpenAIAuth(ctx?: ExtensionContext, signal?: AbortSi
 		signal,
 	});
 	return apiKey
-		? { provider: "openai", apiKey, model: "gpt-5.4", headers: {} }
+		? { provider: "openai", apiKey, model: "gpt-5.4", headers: {}, responsesUrl }
 		: undefined;
 }
 
 export async function isOpenAISearchAvailable(ctx?: ExtensionContext): Promise<boolean> {
-	if (ctx && await resolvePiAuth(ctx)) return true;
 	const config = loadConfig();
+	const responsesUrl = resolveConfiguredResponsesUrl(config.openaiResponsesUrl);
+	if (ctx && await resolvePiAuth(ctx, responsesUrl)) return true;
 	return hasCredentialSource({
 		provider: "OpenAI",
 		configuredValue: config.openaiApiKey,
@@ -379,7 +401,7 @@ export async function searchWithOpenAI(
 	};
 
 	try {
-		const response = await fetch(useCodexEndpoint ? CODEX_RESPONSES_URL : OPENAI_RESPONSES_URL, {
+		const response = await fetch(useCodexEndpoint ? CODEX_RESPONSES_URL : auth.responsesUrl, {
 			method: "POST",
 			headers,
 			body: JSON.stringify(body),

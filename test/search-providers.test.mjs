@@ -546,6 +546,39 @@ test("OpenAI search requires web_search and maps domain filters", async () => {
 	]);
 });
 
+test("OpenAI search uses configured Responses endpoint", async () => {
+	const home = await mkdtemp(join(tmpdir(), "pi-web-access-openai-url-"));
+	await writeFile(join(home, "web-search.json"), JSON.stringify({
+		openaiApiKey: "sk-config-key",
+		openaiResponsesUrl: "https://gateway.example.com/v1/responses",
+	}) + "\n");
+	const child = runChild(`
+		let capturedUrl = "";
+		let capturedAuthorization = "";
+		globalThis.fetch = async (url, init) => {
+			capturedUrl = String(url);
+			capturedAuthorization = init.headers.Authorization;
+			return new Response(JSON.stringify({
+				output: [{ type: "message", content: [{ type: "output_text", text: "gateway answer" }] }],
+			}), { status: 200, headers: { "content-type": "application/json" } });
+		};
+
+		const { searchWithOpenAI } = await import(${JSON.stringify(openaiModuleUrl)});
+		const result = await searchWithOpenAI("gateway docs", { numResults: 1 });
+		console.log(JSON.stringify({ capturedUrl, capturedAuthorization, answer: result.answer }));
+	`, {
+		HOME: home,
+		USERPROFILE: home,
+		PI_CODING_AGENT_DIR: home,
+	});
+
+	assert.equal(child.status, 0, child.stderr);
+	const output = JSON.parse(child.stdout.trim());
+	assert.equal(output.capturedUrl, "https://gateway.example.com/v1/responses");
+	assert.equal(output.capturedAuthorization, "Bearer sk-config-key");
+	assert.equal(output.answer, "gateway answer");
+});
+
 test("Gemini API search uses its search-only default model", async () => {
 	const home = await mkdtemp(join(tmpdir(), "pi-web-access-gemini-default-"));
 	const child = runChild(`
