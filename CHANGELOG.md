@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-07-28
+
 ### Added
 - Added `openaiResponsesUrl` for routing OpenAI `web_search` and `source_check` calls through third-party Responses-compatible gateways while keeping the official OpenAI endpoint as the default. Thanks The Loki (`@the-loki`) for issue #174.
 - Added `provider: "all"` to search every available provider except AnySearch simultaneously, render one independently selectable Curator card per provider before the final summary, deduplicate sources and inline content, and preserve partial successes with per-provider diagnostics. Thanks José Antonio Galiano Sandoval (`@jagaliano`) for PR #173.
