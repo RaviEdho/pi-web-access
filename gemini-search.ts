@@ -11,13 +11,14 @@ import { isOpenAISearchAvailable, searchWithOpenAI } from "./openai-search.ts";
 import { isParallelAvailable, searchWithParallel } from "./parallel.ts";
 import { isTinyFishAvailable, searchWithTinyFish } from "./tinyfish.ts";
 import { isSearch1APIAvailable, searchWithSearch1API } from "./search1api.ts";
+import { isQueritAvailable, searchWithQuerit } from "./querit.ts";
 import { isTavilyAvailable, searchWithTavily } from "./tavily.ts";
 import { isSerpdiveAvailable, searchWithSerpdive } from "./serpdive.ts";
 import { isSearXNGAvailable, searchWithSearXNG } from "./searxng.ts";
 import { isAnySearchAvailable, searchWithAnySearch } from "./anysearch.ts";
 import { getWebSearchConfigPath } from "./utils.ts";
 
-export const RESOLVED_SEARCH_PROVIDERS = ["openai", "brave", "parallel", "tinyfish", "search1api", "tavily", "searxng", "perplexity", "gemini", "exa", "serpdive", "anysearch"] as const;
+export const RESOLVED_SEARCH_PROVIDERS = ["openai", "brave", "parallel", "tinyfish", "search1api", "querit", "tavily", "searxng", "perplexity", "gemini", "exa", "serpdive", "anysearch"] as const;
 export const SEARCH_PROVIDERS = ["auto", "all", ...RESOLVED_SEARCH_PROVIDERS] as const;
 
 export type ResolvedSearchProvider = typeof RESOLVED_SEARCH_PROVIDERS[number];
@@ -79,7 +80,7 @@ export interface AttributedSearchResponse extends SearchResponse {
 
 const CONFIG_PATH = getWebSearchConfigPath();
 const DEFAULT_SEARCH_MODEL = "gemini-3.6-flash";
-const ALL_SEARCH_PROVIDERS: ResolvedSearchProvider[] = ["searxng", "openai", "exa", "brave", "parallel", "tinyfish", "search1api", "tavily", "serpdive", "perplexity", "gemini"];
+const ALL_SEARCH_PROVIDERS: ResolvedSearchProvider[] = ["searxng", "openai", "exa", "brave", "parallel", "tinyfish", "search1api", "querit", "tavily", "serpdive", "perplexity", "gemini"];
 const VALID_ROUTING_KINDS = ["transient", "quota", "network"] as const;
 
 type SearchConfig = {
@@ -287,6 +288,7 @@ async function searchWithResolvedProvider(
 	if (provider === "parallel") return { ...(await searchWithParallel(query, options)), provider };
 	if (provider === "tinyfish") return { ...(await searchWithTinyFish(query, options)), provider };
 	if (provider === "search1api") return { ...(await searchWithSearch1API(query, options)), provider };
+	if (provider === "querit") return { ...(await searchWithQuerit(query, options)), provider };
 	if (provider === "tavily") return { ...(await searchWithTavily(query, options)), provider };
 	if (provider === "serpdive") return { ...(await searchWithSerpdive(query, options)), provider };
 	if (provider === "anysearch") return { ...(await searchWithAnySearch(query, options)), provider };
@@ -313,6 +315,7 @@ async function isResolvedProviderAvailable(provider: ResolvedSearchProvider, opt
 	if (provider === "parallel") return isParallelAvailable();
 	if (provider === "tinyfish") return isTinyFishAvailable();
 	if (provider === "search1api") return isSearch1APIAvailable();
+	if (provider === "querit") return isQueritAvailable();
 	if (provider === "tavily") return isTavilyAvailable();
 	if (provider === "serpdive") return isSerpdiveAvailable();
 	if (provider === "anysearch") return isAnySearchAvailable();
@@ -326,6 +329,7 @@ function providerLabel(provider: ResolvedSearchProvider): string {
 	if (provider === "openai") return "OpenAI";
 	if (provider === "tinyfish") return "TinyFish";
 	if (provider === "search1api") return "Search1API";
+	if (provider === "querit") return "Querit";
 	if (provider === "serpdive") return "SERPdive";
 	if (provider === "searxng") return "SearXNG";
 	return provider.charAt(0).toUpperCase() + provider.slice(1);
@@ -526,6 +530,15 @@ export async function search(query: string, options: FullSearchOptions = {}): Pr
 			fallbackErrors.push(`Search1API: ${errorMessage(err)}`);
 		}
 	}
+	if (isQueritAvailable()) {
+		try {
+			const result = await searchWithQuerit(query, options);
+			return { ...result, provider: "querit" };
+		} catch (err) {
+			if (isAbortError(err)) throw err;
+			fallbackErrors.push(`Querit: ${errorMessage(err)}`);
+		}
+	}
 
 	if (isTavilyAvailable()) {
 		try {
@@ -572,8 +585,8 @@ export async function search(query: string, options: FullSearchOptions = {}): Pr
 	throw new Error(
 		"No search provider available. Either:\n" +
 		"  1. Use /login to sign in with a Codex subscription for OpenAI web search\n" +
-		`  2. Set openaiApiKey, braveApiKey, parallelApiKey, tinyfishApiKey, search1apiApiKey, tavilyApiKey, serpdiveApiKey, searxngBaseUrl, perplexityApiKey, exaApiKey, geminiApiKey, or cloudflareApiKey in ${CONFIG_PATH}\n` +
-		"  3. Set OPENAI_API_KEY, BRAVE_API_KEY, PARALLEL_API_KEY, TINYFISH_API_KEY, SEARCH1API_KEY, TAVILY_API_KEY, SERPDIVE_API_KEY, SEARXNG_BASE_URL, EXA_API_KEY, PERPLEXITY_API_KEY, GEMINI_API_KEY, or CLOUDFLARE_API_KEY env vars\n" +
+		`  2. Set openaiApiKey, braveApiKey, parallelApiKey, tinyfishApiKey, search1apiApiKey, queritApiKey, tavilyApiKey, serpdiveApiKey, searxngBaseUrl, perplexityApiKey, exaApiKey, geminiApiKey, or cloudflareApiKey in ${CONFIG_PATH}\n` +
+		"  3. Set OPENAI_API_KEY, BRAVE_API_KEY, PARALLEL_API_KEY, TINYFISH_API_KEY, SEARCH1API_KEY, QUERIT_API_KEY, TAVILY_API_KEY, SERPDIVE_API_KEY, SEARXNG_BASE_URL, EXA_API_KEY, PERPLEXITY_API_KEY, GEMINI_API_KEY, or CLOUDFLARE_API_KEY env vars\n" +
 		"  4. Set GOOGLE_GEMINI_BASE_URL with CLOUDFLARE_API_KEY for Cloudflare AI Gateway routing\n" +
 		"  5. Sign into gemini.google.com in a supported Chromium-based browser\n" +
 		"  6. Explicitly select provider: \"anysearch\" for anonymous AnySearch"

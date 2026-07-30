@@ -43,6 +43,7 @@ import { isOpenAISearchAvailable } from "./openai-search.ts";
 import { isParallelAvailable } from "./parallel.ts";
 import { isTinyFishAvailable } from "./tinyfish.ts";
 import { isSearch1APIAvailable } from "./search1api.ts";
+import { isQueritAvailable } from "./querit.ts";
 import { isTavilyAvailable } from "./tavily.ts";
 import { isSerpdiveAvailable } from "./serpdive.ts";
 import { isSearXNGAvailable } from "./searxng.ts";
@@ -127,6 +128,7 @@ interface ProviderAvailability {
 	parallel: boolean;
 	tinyfish: boolean;
 	search1api: boolean;
+	querit: boolean;
 	tavily: boolean;
 	serpdive: boolean;
 	searxng: boolean;
@@ -320,6 +322,7 @@ async function getProviderAvailability(ctx: ExtensionContext): Promise<ProviderA
 		parallel: isParallelAvailable(),
 		tinyfish: isTinyFishAvailable(),
 		search1api: isSearch1APIAvailable(),
+		querit: isQueritAvailable(),
 		tavily: isTavilyAvailable(),
 		serpdive: isSerpdiveAvailable(),
 		searxng: isSearXNGAvailable(),
@@ -366,6 +369,7 @@ function firstAvailableProvider(available: ProviderAvailability, preferOpenAI: b
 	if (available.parallel) return "parallel";
 	if (available.tinyfish) return "tinyfish";
 	if (available.search1api) return "search1api";
+	if (available.querit) return "querit";
 	if (available.tavily) return "tavily";
 	if (available.serpdive) return "serpdive";
 	if (available.perplexity) return "perplexity";
@@ -408,6 +412,9 @@ function resolveProvider(
 	}
 	if (provider === "search1api" && !available.search1api) {
 		return firstAvailableProvider(available, preferOpenAI, "search1api");
+	}
+	if (provider === "querit" && !available.querit) {
+		return firstAvailableProvider(available, preferOpenAI, "querit");
 	}
 	if (provider === "tavily" && !available.tavily) {
 		return firstAvailableProvider(available, preferOpenAI, "tavily");
@@ -1469,7 +1476,7 @@ export default function (pi: ExtensionAPI) {
 		name: toolNames.webSearch,
 		label: "Web Search",
 		description:
-			`Search the web using OpenAI, Brave, Parallel, TinyFish, Tavily, SearXNG, Exa, Perplexity, Gemini, or AnySearch. Pass a provider array to search only those providers simultaneously, or use provider "all" to search every eligible provider except AnySearch. Returns an AI-synthesized answer with source citations. OpenAI search uses a Codex subscription or OpenAI API key. AnySearch is available only when explicitly selected. For comprehensive research, prefer queries (plural) with 2-4 varied angles over a single query — each query gets its own synthesized answer, so varying phrasing and scope gives much broader coverage. When includeContent is true, full page content is fetched in the background. Searches auto-open the interactive browser curator and stream results live; set workflow to "none" to skip curation or "auto-summary" for a model-generated summary without the browser curator. The configured provider is used when provider is omitted or set to auto; omit provider unless explicitly overriding it. Without a configured provider, auto-selects OpenAI when suitable and available, then Exa, Brave, Parallel, TinyFish, Tavily, Perplexity, Gemini API, or Gemini Web. When SearXNG is configured, it is preferred first for local/private search.`,
+			`Search the web using OpenAI, Brave, Parallel, TinyFish, Search1API, Querit, Tavily, SERPdive, SearXNG, Exa, Perplexity, Gemini, or AnySearch. Pass a provider array to search only those providers simultaneously, or use provider "all" to search every eligible provider except AnySearch. Returns an AI-synthesized answer with source citations. OpenAI search uses a Codex subscription or OpenAI API key. AnySearch is available only when explicitly selected. For comprehensive research, prefer queries (plural) with 2-4 varied angles over a single query — each query gets its own synthesized answer, so varying phrasing and scope gives much broader coverage. When includeContent is true, full page content is fetched in the background. Searches auto-open the interactive browser curator and stream results live; set workflow to "none" to skip curation or "auto-summary" for a model-generated summary without the browser curator. The configured provider is used when provider is omitted or set to auto; omit provider unless explicitly overriding it. Without a configured provider, auto-selects OpenAI when suitable and available, then Exa, Brave, Parallel, TinyFish, Search1API, Querit, Tavily, SERPdive, Perplexity, Gemini API, or Gemini Web. When SearXNG is configured, it is preferred first for local/private search.`,
 		promptSnippet:
 			"Use for web research questions. Prefer {queries:[...]} with 2-4 varied angles over a single query for broader coverage. Omit provider unless explicitly overriding the configured default.",
 		parameters: Type.Object({

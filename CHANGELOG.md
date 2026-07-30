@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Added Querit as a first-class search and extraction provider with `queritApiKey` / `QUERIT_API_KEY` credentials, SDK-compatible domain and recency filters, batched inline content retrieval, provider-array/all-provider routing, curator selection, and a hosted `fetch_content` fallback through the Contents API.
 - Added Search1API as a first-class search and extraction provider with `search1apiApiKey` / `SEARCH1API_KEY` credentials, native domain and recency filters, opt-in Deep Search inline content, provider-array/all-provider routing, curator selection, and a hosted `fetch_content` fallback through the Crawl API. Thanks `@fatwang2` for PR #176.
 
 ### Fixed
