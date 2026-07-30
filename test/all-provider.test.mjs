@@ -60,7 +60,7 @@ test('provider "all" starts every eligible provider together, excludes AnySearch
 			if (target.startsWith("https://api.anysearch.com/")) {
 				throw new Error("AnySearch must not run for provider all");
 			}
-			if (target === "https://mcp.exa.ai/mcp") {
+			if (target.startsWith("https://mcp.exa.ai/mcp")) {
 				await waitForPeers("exa");
 				return new Response(JSON.stringify({
 					jsonrpc: "2.0",
@@ -142,7 +142,7 @@ test('provider array searches only the selected providers concurrently and prese
 
 		globalThis.fetch = async (url) => {
 			const target = String(url);
-			if (target === "https://mcp.exa.ai/mcp") {
+			if (target.startsWith("https://mcp.exa.ai/mcp")) {
 				await waitForPeer("exa");
 				return new Response(JSON.stringify({
 					jsonrpc: "2.0",
@@ -188,7 +188,7 @@ test('provider array reports an unavailable selection without discarding success
 	const child = runChild(`
 		globalThis.fetch = async (url) => {
 			const target = String(url);
-			if (target === "https://mcp.exa.ai/mcp") {
+			if (target.startsWith("https://mcp.exa.ai/mcp")) {
 				return new Response(JSON.stringify({
 					jsonrpc: "2.0",
 					id: 1,
@@ -221,7 +221,7 @@ test('provider "all" uses Gemini API without falling back to Gemini Web', async 
 	const child = runChild(`
 		globalThis.fetch = async (url) => {
 			const target = String(url);
-			if (target === "https://mcp.exa.ai/mcp") {
+			if (target.startsWith("https://mcp.exa.ai/mcp")) {
 				return new Response(JSON.stringify({
 					jsonrpc: "2.0",
 					id: 1,
@@ -264,7 +264,7 @@ test('provider "all" keeps successful providers when another available provider 
 	const child = runChild(`
 		globalThis.fetch = async (url) => {
 			const target = String(url);
-			if (target === "https://mcp.exa.ai/mcp") {
+			if (target.startsWith("https://mcp.exa.ai/mcp")) {
 				return new Response(JSON.stringify({
 					jsonrpc: "2.0",
 					id: 1,

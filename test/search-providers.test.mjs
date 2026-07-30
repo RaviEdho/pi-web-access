@@ -269,7 +269,7 @@ test("auto provider falls through to Tavily after unavailable earlier providers"
 		globalThis.fetch = async (url, init = {}) => {
 			const urlText = String(url);
 			calls.push(urlText);
-			if (urlText === "https://mcp.exa.ai/mcp") {
+			if (urlText.startsWith("https://mcp.exa.ai/mcp")) {
 				return new Response("Exa unavailable", { status: 503 });
 			}
 			if (urlText === "https://api.tavily.com/search") {
@@ -292,7 +292,7 @@ test("auto provider falls through to Tavily after unavailable earlier providers"
 
 	assert.equal(child.status, 0, child.stderr);
 	const output = JSON.parse(child.stdout.trim());
-	assert.ok(output.calls.includes("https://mcp.exa.ai/mcp"));
+	assert.ok(output.calls.some((call) => call.startsWith("https://mcp.exa.ai/mcp")));
 	assert.ok(output.calls.includes("https://api.tavily.com/search"));
 	assert.equal(output.result.provider, "tavily");
 	assert.equal(output.result.answer, "Auto Tavily answer");
@@ -308,9 +308,11 @@ test("Exa direct API key ignores full legacy usage counter", async () => {
 
 		let capturedUrl = "";
 		let capturedHeaders = null;
+		let capturedBody = null;
 		globalThis.fetch = async (url, init) => {
 			capturedUrl = String(url);
 			capturedHeaders = init.headers;
+			capturedBody = JSON.parse(init.body);
 			return new Response(JSON.stringify({
 				answer: "Paid Exa answer",
 				citations: [{ title: "Exa Docs", url: "https://exa.ai/docs" }],
@@ -324,7 +326,9 @@ test("Exa direct API key ignores full legacy usage counter", async () => {
 		console.log(JSON.stringify({
 			available,
 			capturedUrl,
+			capturedBody,
 			apiKey: capturedHeaders["x-api-key"],
+			integration: capturedHeaders["x-exa-integration"],
 			result,
 			usage,
 		}));
@@ -338,7 +342,9 @@ test("Exa direct API key ignores full legacy usage counter", async () => {
 	const output = JSON.parse(child.stdout.trim());
 	assert.equal(output.available, true);
 	assert.equal(output.capturedUrl, "https://api.exa.ai/answer");
+	assert.deepEqual(output.capturedBody, { query: "paid exa query" });
 	assert.equal(output.apiKey, "exa-paid-key");
+	assert.equal(output.integration, "pi-web-access");
 	assert.equal(output.result.answer, "Paid Exa answer");
 	assert.deepEqual(output.result.results, [{ title: "Exa Docs", url: "https://exa.ai/docs", snippet: "" }]);
 	assert.equal(output.usage.count, 1000);
@@ -441,6 +447,104 @@ test("Exa provider errors redact the resolved credential", async () => {
 	const { message } = JSON.parse(child.stdout.trim());
 	assert.equal(message.includes(secret), false);
 	assert.equal(message.includes("[redacted]"), true);
+});
+
+test("keyless Exa search sends filters to the advanced MCP tool as parameters", async () => {
+	const home = await mkdtemp(join(tmpdir(), "pi-web-access-exa-mcp-advanced-"));
+	const child = runChild(`
+		let captured = null;
+		globalThis.fetch = async (url, init) => {
+			captured = { url: String(url), body: JSON.parse(init.body) };
+			return new Response(JSON.stringify({
+				jsonrpc: "2.0",
+				id: 1,
+				result: { content: [{ type: "text", text: JSON.stringify({ results: [{
+					title: "Advanced result",
+					url: "https://docs.example.com/advanced",
+					text: "full page text",
+					highlights: ["relevant highlight"],
+				}] }) }] },
+			}), { status: 200 });
+		};
+
+		const { searchWithExa } = await import(${JSON.stringify(exaModuleUrl)});
+		const result = await searchWithExa("semantic query", {
+			numResults: 3,
+			recencyFilter: "week",
+			domainFilter: ["docs.example.com", "-spam.example.net"],
+			includeContent: true,
+		});
+		console.log(JSON.stringify({ captured, result }));
+	`, {
+		HOME: home,
+		USERPROFILE: home,
+		PI_CODING_AGENT_DIR: home,
+	});
+
+	assert.equal(child.status, 0, child.stderr);
+	const { captured, result } = JSON.parse(child.stdout.trim());
+	assert.equal(captured.url, "https://mcp.exa.ai/mcp?tools=web_search_advanced_exa");
+	assert.equal(captured.body.params.name, "web_search_advanced_exa");
+
+	const { startPublishedDate, ...args } = captured.body.params.arguments;
+	assert.ok(startPublishedDate);
+	assert.deepEqual(args, {
+		query: "semantic query",
+		type: "auto",
+		numResults: 3,
+		includeDomains: ["docs.example.com"],
+		excludeDomains: ["spam.example.net"],
+		enableHighlights: true,
+		textMaxCharacters: 50000,
+	});
+
+	assert.deepEqual(result.results, [{ title: "Advanced result", url: "https://docs.example.com/advanced", snippet: "" }]);
+	assert.match(result.answer, /relevant highlight/);
+	assert.deepEqual(result.inlineContent, [{
+		url: "https://docs.example.com/advanced",
+		title: "Advanced result",
+		content: "full page text",
+		error: null,
+	}]);
+});
+
+test("keyless Exa search falls back to the default MCP tool when the advanced tool is missing", async () => {
+	const home = await mkdtemp(join(tmpdir(), "pi-web-access-exa-mcp-fallback-"));
+	const child = runChild(`
+		const tools = [];
+		globalThis.fetch = async (url, init) => {
+			const target = String(url);
+			tools.push(JSON.parse(init.body).params.name);
+			if (target.includes("web_search_advanced_exa")) {
+				return new Response(JSON.stringify({
+					jsonrpc: "2.0",
+					id: 1,
+					error: { code: -32602, message: "Tool web_search_advanced_exa not found" },
+				}), { status: 200 });
+			}
+			return new Response(JSON.stringify({
+				jsonrpc: "2.0",
+				id: 1,
+				result: { content: [{
+					type: "text",
+					text: "Title: Basic result\\nURL: https://example.com/basic\\nText: basic text\\n---",
+				}] },
+			}), { status: 200 });
+		};
+
+		const { searchWithExa } = await import(${JSON.stringify(exaModuleUrl)});
+		const result = await searchWithExa("fallback query", { domainFilter: ["example.com"] });
+		console.log(JSON.stringify({ tools, result }));
+	`, {
+		HOME: home,
+		USERPROFILE: home,
+		PI_CODING_AGENT_DIR: home,
+	});
+
+	assert.equal(child.status, 0, child.stderr);
+	const { tools, result } = JSON.parse(child.stdout.trim());
+	assert.deepEqual(tools, ["web_search_advanced_exa", "web_search_exa"]);
+	assert.deepEqual(result.results, [{ title: "Basic result", url: "https://example.com/basic", snippet: "" }]);
 });
 
 test("failed Gemini command source is redacted and blocks browser fallback", async () => {
