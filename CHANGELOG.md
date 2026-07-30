@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-07-30
+
 ### Added
 - Added Search1API as a first-class search and extraction provider with `search1apiApiKey` / `SEARCH1API_KEY` credentials, native domain and recency filters, opt-in Deep Search inline content, provider-array/all-provider routing, curator selection, and a hosted `fetch_content` fallback through the Crawl API. Thanks `@fatwang2` for PR #176.
 
