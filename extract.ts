@@ -609,10 +609,23 @@ function isLikelyJSRendered(html: string): boolean {
 
 export async function readPDFResponseBuffer(response: Response, maxSizeMB: number): Promise<ArrayBuffer> {
 	const maxBytes = maxSizeMB * 1024 * 1024;
+	return readResponseBufferWithLimit(response, maxBytes, () => pdfSizeLimitError(maxSizeMB));
+}
+
+async function readTextResponseWithLimit(response: Response, maxBytes: number): Promise<string> {
+	const buffer = await readResponseBufferWithLimit(response, maxBytes, () => responseSizeLimitError(maxBytes));
+	return new TextDecoder().decode(buffer);
+}
+
+async function readResponseBufferWithLimit(
+	response: Response,
+	maxBytes: number,
+	buildError: () => Error,
+): Promise<ArrayBuffer> {
 	const reader = response.body?.getReader();
 	if (!reader) {
 		const buffer = await response.arrayBuffer();
-		if (buffer.byteLength > maxBytes) throw pdfSizeLimitError(maxSizeMB);
+		if (buffer.byteLength > maxBytes) throw buildError();
 		return buffer;
 	}
 
@@ -626,7 +639,7 @@ export async function readPDFResponseBuffer(response: Response, maxSizeMB: numbe
 			totalBytes += value.byteLength;
 			if (totalBytes > maxBytes) {
 				await reader.cancel();
-				throw pdfSizeLimitError(maxSizeMB);
+				throw buildError();
 			}
 			chunks.push(value);
 		}
@@ -645,6 +658,10 @@ export async function readPDFResponseBuffer(response: Response, maxSizeMB: numbe
 
 function pdfSizeLimitError(maxSizeMB: number): Error {
 	return new Error(`PDF exceeds configured pdf.maxSizeMB limit (${maxSizeMB} MB)`);
+}
+
+function responseSizeLimitError(maxBytes: number): Error {
+	return new Error(`Response too large (${Math.round(maxBytes / 1024 / 1024)}MB)`);
 }
 
 async function extractViaHttp(
@@ -757,7 +774,7 @@ async function extractViaHttp(
 			};
 		}
 
-		const text = await response.text();
+		const text = await readTextResponseWithLimit(response, maxResponseSize);
 		const isHTML = contentType.includes("text/html") || contentType.includes("application/xhtml+xml");
 
 		if (!isHTML) {

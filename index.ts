@@ -2106,15 +2106,12 @@ export default function (pi: ExtensionAPI) {
 			let fetched: ExtractedContent[] = [];
 			if (params.fetchContent && results.length > 0) {
 				const urls = results.slice(0, 5).map((result) => result.url);
-				fetched = (await Promise.all(urls.map(async (url) => {
-					try {
-						const [page] = await fetchAllContent([url], signal);
-						return page;
-					} catch (err) {
-						if (signal?.aborted || isAbortError(err)) throw err;
-						return { url, title: "", content: "", error: err instanceof Error ? err.message : String(err) };
-					}
-				}))).filter((page): page is ExtractedContent => Boolean(page));
+				try {
+					fetched = await fetchAllContent(urls, signal);
+				} catch (err) {
+					if (signal?.aborted || isAbortError(err)) throw err;
+					fetched = urls.map((url) => ({ url, title: "", content: "", error: err instanceof Error ? err.message : String(err) }));
+				}
 			}
 			const artifact = withClaimAssessment(buildResearchArtifact({
 				query: claim,
