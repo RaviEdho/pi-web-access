@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Added Gemini API PDF-to-Markdown conversion before local `unpdf` fallback, with inline PDF upload, page-marker validation, configurable `pdf.maxSizeMB`, and streamed size enforcement. Thanks José Antonio Galiano Sandoval (`@jagaliano`) for PR #180.
 - Added Searchinfinity (Byteplus Searchinfinity / 豆包搜索 Global edition) as a search provider with `searchinfinityApiKey` / `SEARCHINFINITY_API_KEY` credentials, native domain and recency filters, model-generated result summaries, HTTP-semantics mapping for business error codes, provider-array/all-provider routing, and curator selection. Thanks `@cyzlmh` for PR #186.
 - Added Querit as a search and hosted content provider with `queritApiKey` / `QUERIT_API_KEY` credentials, native domain and recency filters, optional inline Contents retrieval, provider-array/all-provider routing, curator selection, and a `fetch_content` fallback. Thanks `@MCapricorns` for PR #185.
 

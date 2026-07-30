@@ -202,7 +202,7 @@ Requires `ffmpeg` (and `yt-dlp` for YouTube). Timestamps accept `H:MM:SS`, `MM:S
 
 ### PDFs
 
-PDF URLs are extracted as text and saved to `~/Downloads/` as markdown. The agent can then `read` specific sections without loading the full document into context. Text-based extraction only — no OCR.
+PDF URLs are converted to Markdown with Gemini API when configured, with local `unpdf` text extraction as fallback. Markdown is saved under the temporary `pi-web-pdf` directory by default so the agent can `read` specific sections without loading the full document into context. Text-based extraction only — no OCR.
 
 ### Blocked pages
 
@@ -218,7 +218,7 @@ fetch_content(url)
   → Video file?  Gemini API (Files API) → Gemini Web (if browser cookies enabled)
   → GitHub URL?  Clone repo, return file contents + local path
   → YouTube URL? Gemini Web (if browser cookies enabled) → Gemini API → Perplexity
-  → HTTP fetch → PDF? Extract text, save to ~/Downloads/
+  → HTTP fetch → PDF? Gemini API → local text extraction, save to temp pi-web-pdf
                → HTML? Readability (+ declared Link/rel discovery) → RSC parser → Firecrawl (if configured, cache-only by default) → Jina Reader → TinyFish → Search1API → Querit → Parallel → Gemini fallback
                → Text/JSON/Markdown? Return directly
 ```
@@ -327,6 +327,9 @@ Config defaults to `~/.pi/web-search.json`, or `web-search.json` under `PI_CODIN
     "enabled": true,
     "preferredModel": "gemini-3.6-flash",
     "maxSizeMB": 50
+  },
+  "pdf": {
+    "maxSizeMB": 20
   },
   "fetchContent": {
     "domainPolicy": {
@@ -529,7 +532,7 @@ Values use the same format as pi keybindings (e.g. `ctrl+s`, `ctrl+shift+s`, `al
 
 Set `"enabled": false` under any feature to disable it. For GitHub specifically, `githubClone.enabled: false` only skips clone/API specialization; it does not unregister `fetch_content` or block generic URL extraction. Config changes require a Pi restart.
 
-Rate limits: Perplexity is capped at 10 requests/minute (client-side). TinyFish, Search1API, and Searchinfinity apply the plan limits documented by their APIs. Querit Search and Contents subscriptions are independent. Content fetches run 3 concurrent with a 30s timeout per URL.
+Rate limits: Perplexity is capped at 10 requests/minute (client-side). TinyFish, Search1API, and Searchinfinity apply the plan limits documented by their APIs. Querit Search and Contents subscriptions are independent. Content fetches run 3 concurrent with a 30s timeout per URL. `pdf.maxSizeMB` defaults to 20 and is capped at 50.
 
 ## Limitations
 
