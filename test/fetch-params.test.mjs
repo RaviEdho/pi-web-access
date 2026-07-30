@@ -27,13 +27,13 @@ test("fetch_content params ignore blank optional strings and blank urls", () => 
 		urls: ["", " https://example.com/two ", "https://example.com/one"],
 		prompt: "",
 		timestamp: "   ",
-		model: " gemini-3-flash-preview ",
+		model: " gemini-3.6-flash ",
 	});
 
 	assert.deepEqual(normalized.urlList, ["https://example.com/two", "https://example.com/one"]);
 	assert.equal(normalized.options.prompt, undefined);
 	assert.equal(normalized.options.timestamp, undefined);
-	assert.equal(normalized.options.model, "gemini-3-flash-preview");
+	assert.equal(normalized.options.model, "gemini-3.6-flash");
 	assert.equal(normalizeFetchContentParams({ model: "" }).options.model, undefined);
 });
 

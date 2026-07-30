@@ -679,7 +679,7 @@ test("Gemini API search uses its search-only default model", async () => {
 
 	assert.equal(child.status, 0, child.stderr);
 	const output = JSON.parse(child.stdout.trim());
-	assert.equal(output.capturedUrl, "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent");
+	assert.equal(output.capturedUrl, "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent");
 	assert.equal(output.capturedHeaders["x-goog-api-key"], "gemini-test-key");
 	assert.deepEqual(output.capturedBody.tools, [{ google_search: {} }]);
 	assert.equal(output.provider, "gemini");

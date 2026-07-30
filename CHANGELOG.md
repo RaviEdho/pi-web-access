@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 - Added Search1API as a first-class search and extraction provider with `search1apiApiKey` / `SEARCH1API_KEY` credentials, native domain and recency filters, opt-in Deep Search inline content, provider-array/all-provider routing, curator selection, and a hosted `fetch_content` fallback through the Crawl API. Thanks `@fatwang2` for PR #176.
 
 ### Fixed
+- Standardized Gemini API defaults on `gemini-3.6-flash` for search, URL context, YouTube, and local video paths, set Gemini Web’s separate browser-cookie default to `gemini-3.1-pro`, and stopped unsupported Web models from silently falling back to 2.5 Flash. Thanks `@jagaliano` for issue #181.
 - Accept explicit provider arrays for `web_search` and `source_check`, running only the selected providers concurrently while preserving `auto`, `all`, and sequential routing behavior. Thanks `@XWIlluDelu` for PR #179.
 - Added `curatorRemote` and `autoOpenBrowser` controls for remote-accessible curator sessions, defaulting remote mode to a printed manual URL unless browser auto-open is explicitly requested. Thanks `@tylerdavis` for PR #178.
 - Resolve the OpenAI search model from Pi’s model registry, with an `openaiSearchModel` override and preserved API-key fallback for partial registries. Thanks `@ahalekelly` for PR #182.

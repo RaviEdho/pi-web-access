@@ -6,7 +6,7 @@ const DEFAULT_API_HOST = "https://generativelanguage.googleapis.com";
 const API_VERSION = "v1beta";
 export const API_BASE = `${DEFAULT_API_HOST}/${API_VERSION}`;
 const CONFIG_PATH = getWebSearchConfigPath();
-export const DEFAULT_MODEL = "gemini-3-flash-preview";
+export const DEFAULT_MODEL = "gemini-3.6-flash";
 
 interface GeminiApiConfig {
 	geminiApiKey?: unknown;

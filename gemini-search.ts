@@ -78,7 +78,7 @@ export interface AttributedSearchResponse extends SearchResponse {
 }
 
 const CONFIG_PATH = getWebSearchConfigPath();
-const DEFAULT_SEARCH_MODEL = "gemini-2.5-flash";
+const DEFAULT_SEARCH_MODEL = "gemini-3.6-flash";
 const ALL_SEARCH_PROVIDERS: ResolvedSearchProvider[] = ["searxng", "openai", "exa", "brave", "parallel", "tinyfish", "search1api", "tavily", "serpdive", "perplexity", "gemini"];
 const VALID_ROUTING_KINDS = ["transient", "quota", "network"] as const;
 
@@ -640,7 +640,6 @@ async function searchWithGeminiWeb(query: string, options: SearchOptions = {}): 
 
 	try {
 		const text = await queryWithCookies(prompt, cookies, {
-			model: "gemini-3-flash-preview",
 			signal: options.signal,
 			timeoutMs: 60000,
 		});

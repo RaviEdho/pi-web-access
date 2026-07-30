@@ -86,6 +86,8 @@ test("Gemini generate, upload, status, and delete use only shared header auth", 
 	const output = JSON.parse(child.stdout.trim());
 	assert.equal(output.result.content, "# Synthetic video");
 	assert.deepEqual(output.requests.map(request => request.method), ["POST", "PUT", "GET", "POST", "DELETE"]);
+	const generateRequest = output.requests.find(request => request.url.includes(":generateContent"));
+	assert.equal(generateRequest.url, "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent");
 	for (const request of output.requests) {
 		assert.equal(request.headers["x-goog-api-key"], "synthetic-gemini-key");
 		const url = new URL(request.url);
