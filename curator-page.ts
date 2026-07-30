@@ -8,7 +8,7 @@ function safeInlineJSON(data: unknown): string {
 }
 
 function buildProviderButtons(
-	available: { all: boolean; openai: boolean; brave: boolean; parallel: boolean; tinyfish: boolean; search1api: boolean; searchinfinity: boolean; tavily: boolean; serpdive: boolean; searxng: boolean; perplexity: boolean; exa: boolean; gemini: boolean; anysearch: boolean },
+	available: { all: boolean; openai: boolean; brave: boolean; parallel: boolean; tinyfish: boolean; search1api: boolean; searchinfinity: boolean; querit: boolean; tavily: boolean; serpdive: boolean; searxng: boolean; perplexity: boolean; exa: boolean; gemini: boolean; anysearch: boolean },
 	selected: string,
 	hasInitialQueries: boolean,
 ): string {
@@ -21,6 +21,7 @@ function buildProviderButtons(
 		{ value: "tinyfish", label: "TinyFish", available: available.tinyfish },
 		{ value: "search1api", label: "Search1API", available: available.search1api },
 		{ value: "searchinfinity", label: "Searchinfinity", available: available.searchinfinity },
+		{ value: "querit", label: "Querit", available: available.querit },
 		{ value: "tavily", label: "Tavily", available: available.tavily },
 		{ value: "serpdive", label: "SERPdive", available: available.serpdive },
 		{ value: "searxng", label: "SearXNG", available: available.searxng },
@@ -45,7 +46,7 @@ export function generateCuratorPage(
 	queries: string[],
 	sessionToken: string,
 	timeout: number,
-	availableProviders: { all: boolean; openai: boolean; brave: boolean; parallel: boolean; tinyfish: boolean; search1api: boolean; searchinfinity: boolean; tavily: boolean; serpdive: boolean; searxng: boolean; perplexity: boolean; exa: boolean; gemini: boolean; anysearch: boolean },
+	availableProviders: { all: boolean; openai: boolean; brave: boolean; parallel: boolean; tinyfish: boolean; search1api: boolean; searchinfinity: boolean; querit: boolean; tavily: boolean; serpdive: boolean; searxng: boolean; perplexity: boolean; exa: boolean; gemini: boolean; anysearch: boolean },
 	defaultProvider: string,
 	searchProvider: string,
 	summaryModels: Array<{ value: string; label: string }>,
@@ -692,6 +693,11 @@ main {
   color: #f9e2af;
   background: rgba(249, 226, 175, 0.14);
   border-color: rgba(249, 226, 175, 0.3);
+}
+.provider-tag.provider-querit {
+  color: #a6e3a1;
+  background: rgba(166, 227, 161, 0.14);
+  border-color: rgba(166, 227, 161, 0.3);
 }
 .provider-tag.provider-tavily {
   color: #a6e3a1;
@@ -1426,7 +1432,7 @@ const SCRIPT = `(function() {
   var token = DATA.sessionToken;
   var timeoutSec = DATA.timeout;
   var queries = Array.isArray(DATA.queries) ? DATA.queries : [];
-  var providers = ["all", "openai", "exa", "brave", "parallel", "tinyfish", "search1api", "searchinfinity", "tavily", "serpdive", "searxng", "perplexity", "gemini", "anysearch"];
+  var providers = ["all", "openai", "exa", "brave", "parallel", "tinyfish", "search1api", "searchinfinity", "querit", "tavily", "serpdive", "searxng", "perplexity", "gemini", "anysearch"];
   var availProviders = DATA.availableProviders && typeof DATA.availableProviders === "object" ? DATA.availableProviders : {};
   var workflow = "summary-review";
   var initialDefaultProvider = typeof DATA.defaultProvider === "string" ? DATA.defaultProvider : "exa";
@@ -1633,6 +1639,7 @@ const SCRIPT = `(function() {
     if (provider === "tinyfish") return "TinyFish";
     if (provider === "search1api") return "Search1API";
     if (provider === "searchinfinity") return "Searchinfinity";
+    if (provider === "querit") return "Querit";
     if (provider === "tavily") return "Tavily";
     if (provider === "serpdive") return "SERPdive";
     if (provider === "searxng") return "SearXNG";

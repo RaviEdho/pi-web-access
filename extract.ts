@@ -12,6 +12,7 @@ import { extractWithUrlContext, extractWithGeminiWeb } from "./gemini-url-contex
 import { extractWithParallel, isParallelAvailable } from "./parallel.ts";
 import { extractWithTinyFish, isTinyFishAvailable } from "./tinyfish.ts";
 import { extractWithSearch1API, isSearch1APIAvailable } from "./search1api.ts";
+import { extractWithQuerit, isQueritAvailable } from "./querit.ts";
 import { extractWithFirecrawl, isFirecrawlAvailable } from "./firecrawl.ts";
 import { isVideoFile, extractVideo, extractVideoFrame, getLocalVideoDuration } from "./video-extract.ts";
 import { appendDeclaredWebLinks, discoverDeclaredWebLinks, type DeclaredWebLink } from "./declared-web-links.ts";
@@ -518,6 +519,21 @@ export async function extractContent(
 	}
 	if (signal?.aborted) return abortedResult(url);
 
+	let queritError: string | null = null;
+	try {
+		if (isQueritAvailable()) {
+			const queritResult = await extractWithQuerit(url, signal, options);
+			if (queritResult) return withDeclaredLinks(queritResult);
+		}
+	} catch (err) {
+		if (isAbortError(err)) return abortedResult(url);
+		queritError = errorMessage(err);
+		if (isConfigParseError(err)) {
+			return { ...httpResult, error: queritError };
+		}
+	}
+	if (signal?.aborted) return abortedResult(url);
+
 	let parallelError: string | null = null;
 	try {
 		if (isParallelAvailable()) {
@@ -553,12 +569,15 @@ export async function extractContent(
 		...(firecrawlError ? [`Firecrawl fallback failed: ${firecrawlError}`] : []),
 		...(tinyfishError ? [`TinyFish fallback failed: ${tinyfishError}`] : []),
 		...(search1apiError ? [`Search1API fallback failed: ${search1apiError}`] : []),
+		...(queritError ? [`Querit fallback failed: ${queritError}`] : []),
 		...(parallelError ? [`Parallel fallback failed: ${parallelError}`] : []),
 		"",
 		"Fallback options:",
 		`  \u2022 Set firecrawlBaseUrl in ${WEB_SEARCH_CONFIG_PATH} to a self-hosted Firecrawl instance`,
-		`  \u2022 Set tinyfishApiKey in ${WEB_SEARCH_CONFIG_PATH} or TINYFISH_API_KEY`,
-		`  \u2022 Set parallelApiKey in ${WEB_SEARCH_CONFIG_PATH} or PARALLEL_API_KEY`,
+		`  • Set tinyfishApiKey in ${WEB_SEARCH_CONFIG_PATH} or TINYFISH_API_KEY`,
+		`  • Set search1apiApiKey in ${WEB_SEARCH_CONFIG_PATH} or SEARCH1API_KEY`,
+		`  • Set queritApiKey in ${WEB_SEARCH_CONFIG_PATH} or QUERIT_API_KEY`,
+		`  • Set parallelApiKey in ${WEB_SEARCH_CONFIG_PATH} or PARALLEL_API_KEY`,
 		`  \u2022 Set GEMINI_API_KEY in ${WEB_SEARCH_CONFIG_PATH}`,
 		"  \u2022 Sign into gemini.google.com in Chrome",
 		"  \u2022 Use web_search to find content about this topic",
