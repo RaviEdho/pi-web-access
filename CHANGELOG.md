@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- Added Searchinfinity (Byteplus Searchinfinity / 豆包搜索 Global edition) as a search provider with `searchinfinityApiKey` / `SEARCHINFINITY_API_KEY` credentials, native domain and recency filters, model-generated result summaries, HTTP-semantics mapping for business error codes, provider-array/all-provider routing, and curator selection. Thanks `@cyzlmh` for PR #186.
+
 ### Fixed
 - Fixed filtered zero-config Exa search silently losing its request options: the default keyless MCP tool (`web_search_exa`) only accepts `query` and `numResults`, so `type`, `livecrawl`, and `contextMaxCharacters` were dropped server-side and `includeContent` never returned page text. Filtered or content-carrying keyless searches now use `web_search_advanced_exa` — served by the same keyless free tier — which applies `includeDomains`/`excludeDomains`, `startPublishedDate`, highlights, and text limits as real parameters instead of `site:` / "past week" strings appended to the semantic query. Plain searches stay on `web_search_exa`, and the advanced path falls back to it if it is unavailable.
 - Stopped requesting citation text on keyed Exa `/answer` calls, which was fetched and then discarded, and stopped requesting page text on keyed `/search` calls that do not ask for content.
