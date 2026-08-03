@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-08-03
+
 ### Added
 - `fetch_content` can now return the original text response with `mode: "raw"`, which is useful for JSON APIs, error pages, and debugging what a server actually sent.
 - `fetch_content` can now answer a question about a single fetched page with `mode: "answer"`, while still saving the original page text so you can inspect it later.
