@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-08-08
+
 ### Added
 - Added Jina Search as a normal configured `web_search` provider with `jinaApiKey` / `JINA_API_KEY`, explicit/auto/routing/all-provider support, domain and recency constraints, optional inline page content, and Curator integration. Thanks Orbio Agent (`@Gabrielgvl`) for PR #214.
 
