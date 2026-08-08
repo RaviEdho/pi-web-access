@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- Preserve collapsed `web_search` result background padding. Thanks `@SheffeyG` for PR #224.
+
 ## [0.19.0] - 2026-08-08
 
 ### Added
