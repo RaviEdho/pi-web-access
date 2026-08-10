@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-08-10
+
 ### Added
 - Added per-tool and per-command registration gates plus image and PDF extraction gates. Thanks @jaudiger for issue #234.
 - Added `summaryGenerationDeadlineMs` to configure the summary model deadline for curator and auto-summary workflows. Thanks @cataldoc for issue #237.
