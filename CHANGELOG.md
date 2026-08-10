@@ -4,9 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-08-10
+
 ### Added
 - Added keyless DuckDuckGo HTML search as an explicit and routing provider. Thanks @lmilojevicc for issue #228.
 - Added Datalab hosted PDF-to-Markdown extraction as an optional PDF provider. Thanks José Antonio Galiano Sandoval (`@jagaliano`) for PR #226.
+
+### Changed
+- Tightened Datalab JSON response validation and Gemini Web fetch initialization internals.
 
 ### Fixed
 - Fix Gemini Web "fetch failed" (`UND_ERR_HEADERS_OVERFLOW`) when running inside a host agent whose global undici dispatcher uses HTTP/1.1 with the default 16 KiB `maxHeaderSize`: Google's `/app` page exceeds that budget. Gemini Web requests now use a dedicated undici agent with a 4 MiB header budget. Thanks José Antonio Galiano Sandoval (`@jagaliano`) for PR #230.
