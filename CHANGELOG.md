@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-08-11
+
 ### Added
 - Added Bocha web search provider support. Thanks @jingyulong for PR #243.
 - Added `maxInlineContentChars` to configure the direct content and stored-content slice limit, with a 200,000-character maximum. Thanks @be4zad for issue #244.
