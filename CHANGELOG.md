@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - Added Bocha web search provider support. Thanks @jingyulong for PR #243.
+- Added `maxInlineContentChars` to configure the direct content and stored-content slice limit, with a 200,000-character maximum. Thanks @be4zad for issue #244.
 
 ### Fixed
 - Hardened the fetched-content cache against symlink traversal and unsafe permissions, and bounded it to 128 entries and 128 MiB with oldest-entry eviction. Thanks `@HerbertGao` for issue #240 and PR #241.

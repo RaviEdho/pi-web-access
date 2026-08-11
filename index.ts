@@ -125,6 +125,7 @@ interface WebSearchConfig {
 	curatorRemote?: unknown;
 	summaryModel?: string;
 	summaryGenerationDeadlineMs?: unknown;
+	maxInlineContentChars?: unknown;
 	webSearch?: {
 		enabled?: boolean;
 	};
@@ -562,15 +563,22 @@ interface PendingCurate {
 }
 
 
-const MAX_INLINE_CONTENT = 30000; // Content returned directly to agent
-const DEFAULT_CONTENT_SLICE_LENGTH = MAX_INLINE_CONTENT;
-const MAX_CONTENT_SLICE_LENGTH = MAX_INLINE_CONTENT;
+const DEFAULT_MAX_INLINE_CONTENT_CHARS = 30_000;
+const MAX_INLINE_CONTENT_CHARS = 200_000;
+
+function getMaxInlineContentChars(): number {
+	const value = loadConfig().maxInlineContentChars;
+	if (typeof value !== "number" || !Number.isFinite(value) || !Number.isInteger(value) || value <= 0) {
+		return DEFAULT_MAX_INLINE_CONTENT_CHARS;
+	}
+	return Math.min(value, MAX_INLINE_CONTENT_CHARS);
+}
 
 function stripThumbnails(results: ExtractedContent[]): ExtractedContent[] {
 	return results.map(({ thumbnail, frames, ...rest }) => rest);
 }
 
-function initialContentSlice(content: string): {
+function initialContentSlice(content: string, maxChars: number): {
 	text: string;
 	endOffset: number;
 	totalBytes: number;
@@ -578,10 +586,10 @@ function initialContentSlice(content: string): {
 	shownBytes: number;
 	shownLines: number;
 } {
-	let endOffset = Math.min(content.length, MAX_INLINE_CONTENT);
+	let endOffset = Math.min(content.length, maxChars);
 	if (endOffset < content.length) {
 		const lineBreak = content.lastIndexOf("\n", endOffset);
-		if (lineBreak >= Math.floor(MAX_INLINE_CONTENT * 0.8)) endOffset = lineBreak + 1;
+		if (lineBreak >= Math.floor(maxChars * 0.8)) endOffset = lineBreak + 1;
 	}
 	const text = content.slice(0, endOffset);
 	return {
@@ -2409,7 +2417,7 @@ export default function (pi: ExtensionAPI) {
 				}
 
 				const fullLength = result.content.length;
-				const slice = initialContentSlice(result.content);
+				const slice = initialContentSlice(result.content, getMaxInlineContentChars());
 				const truncated = slice.endOffset < fullLength;
 				let output = slice.text;
 
@@ -2621,7 +2629,7 @@ export default function (pi: ExtensionAPI) {
 			url: Type.Optional(Type.String({ description: "Get content for this URL" })),
 			urlIndex: Type.Optional(Type.Number({ description: "Get content for URL at index" })),
 			offset: Type.Optional(Type.Number({ description: "Character offset for fetched URL content slices (default 0). Cannot be combined with findText." })),
-			limit: Type.Optional(Type.Number({ description: `Maximum characters to return for fetched URL content slices (default/max ${MAX_CONTENT_SLICE_LENGTH}). Cannot be combined with findText.` })),
+			limit: Type.Optional(Type.Number({ description: "Maximum characters to return for fetched URL content slices (default and max are set by maxInlineContentChars). Cannot be combined with findText." })),
 			findText: Type.Optional(Type.Union([
 				Type.String({ minLength: 1, maxLength: 500 }),
 				Type.Array(Type.String({ minLength: 1, maxLength: 500 }), { minItems: 1, maxItems: 10 }),
@@ -2653,13 +2661,14 @@ export default function (pi: ExtensionAPI) {
 					};
 				}
 				const serialized = JSON.stringify(artifact, null, 2);
+				const maxInlineContentChars = getMaxInlineContentChars();
 				const offset = params.offset ?? 0;
-				const limit = params.limit ?? MAX_CONTENT_SLICE_LENGTH;
+				const limit = params.limit ?? maxInlineContentChars;
 				if (!Number.isInteger(offset) || offset < 0) {
 					return { content: [{ type: "text", text: "offset must be a non-negative integer" }], details: { error: "Invalid offset", offset } };
 				}
-				if (!Number.isInteger(limit) || limit <= 0 || limit > MAX_CONTENT_SLICE_LENGTH) {
-					return { content: [{ type: "text", text: `limit must be an integer from 1 to ${MAX_CONTENT_SLICE_LENGTH}` }], details: { error: "Invalid limit", limit, maxLimit: MAX_CONTENT_SLICE_LENGTH } };
+				if (!Number.isInteger(limit) || limit <= 0 || limit > maxInlineContentChars) {
+					return { content: [{ type: "text", text: `limit must be an integer from 1 to ${maxInlineContentChars}` }], details: { error: "Invalid limit", limit, maxLimit: maxInlineContentChars } };
 				}
 				if (offset > serialized.length) {
 					return { content: [{ type: "text", text: `offset ${offset} is out of range (0-${serialized.length})` }], details: { error: "Offset out of range", offset, contentLength: serialized.length } };
@@ -2781,18 +2790,19 @@ export default function (pi: ExtensionAPI) {
 					}
 				}
 
+				const maxInlineContentChars = getMaxInlineContentChars();
 				const offset = params.offset ?? 0;
-				const limit = params.limit ?? DEFAULT_CONTENT_SLICE_LENGTH;
+				const limit = params.limit ?? maxInlineContentChars;
 				if (!Number.isInteger(offset) || offset < 0) {
 					return {
 						content: [{ type: "text", text: "offset must be a non-negative integer" }],
 						details: { error: "Invalid offset", offset },
 					};
 				}
-				if (!Number.isInteger(limit) || limit <= 0 || limit > MAX_CONTENT_SLICE_LENGTH) {
+				if (!Number.isInteger(limit) || limit <= 0 || limit > maxInlineContentChars) {
 					return {
-						content: [{ type: "text", text: `limit must be an integer from 1 to ${MAX_CONTENT_SLICE_LENGTH}` }],
-						details: { error: "Invalid limit", limit, maxLimit: MAX_CONTENT_SLICE_LENGTH },
+						content: [{ type: "text", text: `limit must be an integer from 1 to ${maxInlineContentChars}` }],
+						details: { error: "Invalid limit", limit, maxLimit: maxInlineContentChars },
 					};
 				}
 				if (offset > urlData.content.length) {
