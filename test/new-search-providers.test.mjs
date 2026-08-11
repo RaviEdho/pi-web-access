@@ -7,6 +7,7 @@ import { test } from "node:test";
 
 const kagiModuleUrl = new URL("../kagi.ts", import.meta.url).href;
 const bochaModuleUrl = new URL("../bocha.ts", import.meta.url).href;
+const curatorPageModuleUrl = new URL("../curator-page.ts", import.meta.url).href;
 const ollamaModuleUrl = new URL("../ollama.ts", import.meta.url).href;
 const searchModuleUrl = new URL("../gemini-search.ts", import.meta.url).href;
 const serpbaseModuleUrl = new URL("../serpbase.ts", import.meta.url).href;
@@ -129,25 +130,30 @@ test("SerpBase is explicit-only and maps Google organic results", async () => {
 	assert.doesNotMatch(output.autoError, /SerpBase/);
 });
 
-test("Bocha search maps webPages.value results and reports API errors", async () => {
+test("Bocha search filters domains and closes activity on API errors", async () => {
 	const home = await createHome({ bochaApiKey: "bocha-test-key" });
 	const child = runChild(`
 		const calls = [];
 		globalThis.fetch = async (url, init = {}) => {
 			calls.push({ url: String(url), method: init.method || "GET", headers: Object.fromEntries(new Headers(init.headers)), body: init.body ? JSON.parse(init.body) : null });
 			if (String(url) === "https://api.bochaai.com/v1/web-search" && calls.length === 1) {
-				return new Response(JSON.stringify({ code: 200, data: { webPages: { value: [{ name: "Bocha result", url: "https://example.com/bocha", summary: "Bocha snippet" }] } } }), { status: 200 });
+				return new Response(JSON.stringify({ code: 200, data: { webPages: { value: [
+					{ name: "Bocha result", url: "https://docs.example.com/bocha", summary: "Bocha snippet" },
+					{ name: "Blocked result", url: "https://private.docs.example.com/bocha", summary: "Blocked snippet" },
+					{ name: "Outside result", url: "https://outside.example.net/bocha", summary: "Outside snippet" },
+				] } } }), { status: 200 });
 			}
 			if (String(url) === "https://api.bochaai.com/v1/web-search" && calls.length === 2) {
-				return new Response(JSON.stringify({ code: 500, msg: "invalid request" }), { status: 200 });
+				return new Response(JSON.stringify({ code: 500, msg: "invalid request bocha-test-key" }), { status: 200 });
 			}
 			throw new Error("Unexpected fetch " + url);
 		};
 		const { searchWithBocha } = await import(${JSON.stringify(bochaModuleUrl)});
-		const search = await searchWithBocha("bocha query", { numResults: 5, recencyFilter: "week" });
+		const { activityMonitor } = await import(new URL("../activity.ts", ${JSON.stringify(import.meta.url)}).href);
+		const search = await searchWithBocha("bocha query", { numResults: 5, recencyFilter: "week", domainFilter: ["example.com", "-private.docs.example.com"] });
 		let errorText = "";
 		try { await searchWithBocha("bad query"); } catch (error) { errorText = String(error); }
-		console.log(JSON.stringify({ calls, search, errorText }));
+		console.log(JSON.stringify({ calls, search, errorText, errorActivity: activityMonitor.getEntries().at(-1) }));
 	`, { PI_CODING_AGENT_DIR: home });
 	assert.equal(child.status, 0, child.stderr);
 	const output = JSON.parse(child.stdout.trim());
@@ -155,6 +161,34 @@ test("Bocha search maps webPages.value results and reports API errors", async ()
 	assert.equal(output.calls[0].method, "POST");
 	assert.equal(output.calls[0].headers.authorization, "Bearer bocha-test-key");
 	assert.deepEqual(output.calls[0].body, { query: "bocha query", count: 5, freshness: "oneWeek", summary: true });
-	assert.deepEqual(output.search.results, [{ title: "Bocha result", url: "https://example.com/bocha", snippet: "Bocha snippet" }]);
+	assert.deepEqual(output.search.results, [{ title: "Bocha result", url: "https://docs.example.com/bocha", snippet: "Bocha snippet" }]);
 	assert.match(output.errorText, /code 500/);
+	assert.doesNotMatch(output.errorText, /bocha-test-key/);
+	assert.equal(output.errorActivity.status, null);
+	assert.equal(typeof output.errorActivity.endTime, "number");
+	assert.match(output.errorActivity.error, /code 500/);
+	assert.doesNotMatch(output.errorActivity.error, /bocha-test-key/);
+});
+
+test("Curator page exposes Bocha as a manual provider", async () => {
+	const { generateCuratorPage } = await import(curatorPageModuleUrl);
+	const page = generateCuratorPage(
+		["bocha query"],
+		"session-token",
+		20,
+		{
+			all: false, openai: false, brave: false, parallel: false, tinyfish: false, search1api: false,
+			searchinfinity: false, querit: false, tavily: false, jina: false, serpdive: false, kagi: false,
+			bocha: true, ollama: false, searxng: false, duckduckgo: false, perplexity: false, exa: false,
+			gemini: false, anysearch: false, xai: false, brightdata: false, serpbase: false,
+		},
+		"bocha",
+		"bocha",
+		[],
+		null,
+	);
+	assert.match(page, /data-provider="bocha"/);
+	assert.match(page, />Bocha<\/button>/);
+	assert.match(page, /"bocha"/);
+	assert.match(page, /provider === "bocha"\) return "Bocha"/);
 });
