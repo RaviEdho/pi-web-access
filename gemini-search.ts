@@ -17,6 +17,7 @@ import { isTavilyAvailable, searchWithTavily } from "./tavily.ts";
 import { isJinaSearchAvailable, searchWithJina } from "./jina-search.ts";
 import { isSerpdiveAvailable, searchWithSerpdive } from "./serpdive.ts";
 import { isKagiAvailable, searchWithKagi } from "./kagi.ts";
+import { isBochaAvailable, searchWithBocha } from "./bocha.ts";
 import { isOllamaAvailable, searchWithOllama } from "./ollama.ts";
 import { isSearXNGAvailable, searchWithSearXNG } from "./searxng.ts";
 import { isDuckDuckGoAvailable, searchWithDuckDuckGo } from "./duckduckgo.ts";
@@ -26,7 +27,7 @@ import { isBrightDataAvailable, searchWithBrightData } from "./brightdata.ts";
 import { isSerpBaseAvailable, searchWithSerpBase } from "./serpbase.ts";
 import { getWebSearchConfigPath } from "./utils.ts";
 
-export const RESOLVED_SEARCH_PROVIDERS = ["openai", "brave", "parallel", "tinyfish", "search1api", "searchinfinity", "querit", "tavily", "jina", "searxng", "duckduckgo", "perplexity", "gemini", "exa", "serpdive", "kagi", "ollama", "anysearch", "xai", "brightdata", "serpbase"] as const;
+export const RESOLVED_SEARCH_PROVIDERS = ["openai", "brave", "parallel", "tinyfish", "search1api", "searchinfinity", "querit", "tavily", "jina", "searxng", "duckduckgo", "perplexity", "gemini", "exa", "serpdive", "kagi", "ollama", "anysearch", "xai", "brightdata", "serpbase", "bocha"] as const;
 export const SEARCH_PROVIDERS = ["auto", "all", ...RESOLVED_SEARCH_PROVIDERS] as const;
 
 export type ResolvedSearchProvider = typeof RESOLVED_SEARCH_PROVIDERS[number];
@@ -90,7 +91,7 @@ const CONFIG_PATH = getWebSearchConfigPath();
 const DEFAULT_SEARCH_MODEL = "gemini-3.6-flash";
 // Explicit-only providers (DuckDuckGo, AnySearch, xAI, Bright Data, SerpBase) are deliberately absent:
 // `all` must never fan out to an opt-in or paid provider without the user asking for it.
-const ALL_SEARCH_PROVIDERS: ResolvedSearchProvider[] = ["searxng", "openai", "exa", "brave", "parallel", "tinyfish", "search1api", "searchinfinity", "querit", "tavily", "jina", "serpdive", "kagi", "ollama", "perplexity", "gemini"];
+const ALL_SEARCH_PROVIDERS: ResolvedSearchProvider[] = ["searxng", "openai", "exa", "brave", "parallel", "tinyfish", "search1api", "searchinfinity", "querit", "tavily", "jina", "serpdive", "kagi", "ollama", "perplexity", "gemini", "bocha"];
 const VALID_ROUTING_KINDS = ["transient", "quota", "network", "invalid-response"] as const;
 
 type SearchConfig = {
@@ -306,6 +307,7 @@ async function searchWithResolvedProvider(
 	if (provider === "jina") return { ...(await searchWithJina(query, options)), provider };
 	if (provider === "serpdive") return { ...(await searchWithSerpdive(query, options)), provider };
 	if (provider === "kagi") return { ...(await searchWithKagi(query, options)), provider };
+	if (provider === "bocha") return { ...(await searchWithBocha(query, options)), provider };
 	if (provider === "ollama") return { ...(await searchWithOllama(query, options)), provider };
 	if (provider === "anysearch") return { ...(await searchWithAnySearch(query, options)), provider };
 	if (provider === "xai") return { ...(await searchWithXai(query, options, options.extensionContext)), provider };
@@ -341,6 +343,7 @@ async function isResolvedProviderAvailable(provider: ResolvedSearchProvider, opt
 	if (provider === "jina") return isJinaSearchAvailable();
 	if (provider === "serpdive") return isSerpdiveAvailable();
 	if (provider === "kagi") return isKagiAvailable();
+	if (provider === "bocha") return isBochaAvailable();
 	if (provider === "ollama") return isOllamaAvailable();
 	if (provider === "anysearch") return isAnySearchAvailable();
 	if (provider === "xai") return isXaiSearchAvailable(options.extensionContext);
@@ -363,6 +366,7 @@ function providerLabel(provider: ResolvedSearchProvider): string {
 	if (provider === "searxng") return "SearXNG";
 	if (provider === "duckduckgo") return "DuckDuckGo";
 	if (provider === "kagi") return "Kagi";
+	if (provider === "bocha") return "Bocha";
 	if (provider === "ollama") return "Ollama";
 	if (provider === "xai") return "xAI";
 	if (provider === "brightdata") return "Bright Data";
@@ -626,6 +630,16 @@ export async function search(query: string, options: FullSearchOptions = {}): Pr
 		}
 	}
 
+	if (isBochaAvailable()) {
+		try {
+			const result = await searchWithBocha(query, options);
+			return { ...result, provider: "bocha" };
+		} catch (err) {
+			if (isAbortError(err)) throw err;
+			fallbackErrors.push(`Bocha: ${errorMessage(err)}`);
+		}
+	}
+
 	if (isOllamaAvailable()) {
 		try {
 			const result = await searchWithOllama(query, options);
@@ -661,8 +675,8 @@ export async function search(query: string, options: FullSearchOptions = {}): Pr
 	throw new Error(
 		"No search provider available. Either:\n" +
 		"  1. Use /login to sign in with a Codex subscription for OpenAI web search\n" +
-		`  2. Set openaiApiKey, braveApiKey, parallelApiKey, tinyfishApiKey, search1apiApiKey, searchinfinityApiKey, queritApiKey, tavilyApiKey, jinaApiKey, serpdiveApiKey, kagiApiKey, ollamaApiKey, searxngBaseUrl, perplexityApiKey, exaApiKey, geminiApiKey, or cloudflareApiKey in ${CONFIG_PATH}\n` +
-		"  3. Set OPENAI_API_KEY, BRAVE_API_KEY, PARALLEL_API_KEY, TINYFISH_API_KEY, SEARCH1API_KEY, SEARCHINFINITY_API_KEY, QUERIT_API_KEY, TAVILY_API_KEY, JINA_API_KEY, SERPDIVE_API_KEY, KAGI_API_KEY, OLLAMA_API_KEY, SEARXNG_BASE_URL, EXA_API_KEY, PERPLEXITY_API_KEY, GEMINI_API_KEY, or CLOUDFLARE_API_KEY env vars\n" +
+		`  2. Set openaiApiKey, braveApiKey, parallelApiKey, tinyfishApiKey, search1apiApiKey, searchinfinityApiKey, queritApiKey, tavilyApiKey, jinaApiKey, serpdiveApiKey, kagiApiKey, ollamaApiKey, searxngBaseUrl, perplexityApiKey, exaApiKey, geminiApiKey, bochaApiKey, or cloudflareApiKey in ${CONFIG_PATH}\n` +
+		"  3. Set OPENAI_API_KEY, BRAVE_API_KEY, PARALLEL_API_KEY, TINYFISH_API_KEY, SEARCH1API_KEY, SEARCHINFINITY_API_KEY, QUERIT_API_KEY, TAVILY_API_KEY, JINA_API_KEY, SERPDIVE_API_KEY, KAGI_API_KEY, BOCHA_API_KEY, OLLAMA_API_KEY, SEARXNG_BASE_URL, EXA_API_KEY, PERPLEXITY_API_KEY, GEMINI_API_KEY, or CLOUDFLARE_API_KEY env vars\n" +
 		"  4. Set GOOGLE_GEMINI_BASE_URL with CLOUDFLARE_API_KEY for Cloudflare AI Gateway routing\n" +
 		"  5. Sign into gemini.google.com in a supported Chromium-based browser\n" +
 		"  6. Explicitly select provider: \"anysearch\" for anonymous AnySearch, \"xai\" for Grok, \"brightdata\" with brightdataSerpZone for paid Bright Data SERP, or \"serpbase\" with serpbaseApiKey for paid Google SERP"
