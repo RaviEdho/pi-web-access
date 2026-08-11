@@ -53,6 +53,7 @@ import { isTavilyAvailable } from "./tavily.ts";
 import { isJinaSearchAvailable } from "./jina-search.ts";
 import { isSerpdiveAvailable } from "./serpdive.ts";
 import { isKagiAvailable } from "./kagi.ts";
+import { isBochaAvailable } from "./bocha.ts";
 import { isOllamaAvailable } from "./ollama.ts";
 import { isSearXNGAvailable } from "./searxng.ts";
 import { isDuckDuckGoAvailable } from "./duckduckgo.ts";
@@ -384,6 +385,7 @@ async function getProviderAvailability(ctx: ExtensionContext): Promise<ProviderA
 		jina: isJinaSearchAvailable(),
 		serpdive: isSerpdiveAvailable(),
 		kagi: isKagiAvailable(),
+		bocha: isBochaAvailable(),
 		ollama: isOllamaAvailable(),
 		searxng: isSearXNGAvailable(),
 		duckduckgo: isDuckDuckGoAvailable(),
