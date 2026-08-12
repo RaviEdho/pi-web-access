@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - Added Firecrawl as a `web_search` provider using the existing Firecrawl configuration. Thanks Andrés Sanabria (`@andy-spike`) for issue #246.
+- Added macOS Brave profile support for opt-in Gemini Web browser-cookie access.
 
 ## [0.22.0] - 2026-08-11
 
