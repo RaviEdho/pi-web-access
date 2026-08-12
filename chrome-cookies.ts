@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { pbkdf2Sync, createDecipheriv } from "node:crypto";
 import { copyFileSync, existsSync, mkdtempSync, readdirSync, realpathSync, rmSync } from "node:fs";
-import { tmpdir, homedir, platform } from "node:os";
+import { tmpdir, homedir } from "node:os";
 import { isAbsolute, join, sep } from "node:path";
 import { isBrowserCookieAccessAllowed } from "./gemini-web-config.ts";
 
@@ -33,6 +33,7 @@ const ALL_COOKIE_NAMES = new Set([
 const MACOS_BROWSER_CONFIGS: BrowserConfig[] = [
 	{ name: "Helium", baseDir: "Library/Application Support/net.imput.helium", keychainService: "Helium Storage Key", keychainAccount: "Helium" },
 	{ name: "Chrome", baseDir: "Library/Application Support/Google/Chrome", keychainService: "Chrome Safe Storage", keychainAccount: "Chrome" },
+	{ name: "Brave", baseDir: "Library/Application Support/BraveSoftware/Brave-Browser", keychainService: "Brave Safe Storage", keychainAccount: "Brave" },
 	{ name: "Arc", baseDir: "Library/Application Support/Arc/User Data", keychainService: "Arc Safe Storage", keychainAccount: "Arc" },
 ];
 
@@ -59,7 +60,7 @@ export async function getGoogleCookies(
 		return null;
 	}
 
-	const currentPlatform = platform();
+	const currentPlatform = process.platform;
 	const configs = currentPlatform === "darwin" ? MACOS_BROWSER_CONFIGS : currentPlatform === "linux" ? LINUX_BROWSER_CONFIGS : [];
 	if (configs.length === 0) {
 		lastCookieDiagnostic = "Chromium cookie extraction is unsupported on this platform.";
@@ -246,7 +247,7 @@ function removePkcs7Padding(buf: Buffer): Buffer {
 	return !padding || padding > 16 ? buf : buf.subarray(0, buf.length - padding);
 }
 
-function readBrowserPassword(config: BrowserConfig, currentPlatform: ReturnType<typeof platform>): Promise<string | null> {
+function readBrowserPassword(config: BrowserConfig, currentPlatform: typeof process.platform): Promise<string | null> {
 	const cacheKey = `${currentPlatform}:${config.name}`;
 	const cached = browserPasswordCache.get(cacheKey);
 	if (cached) return cached;

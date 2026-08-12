@@ -548,7 +548,7 @@ export async function extractContent(
 			url,
 			title: "",
 			content: "",
-			error: "Could not extract YouTube video content. Sign into Google in Chrome for automatic access, or set GEMINI_API_KEY.",
+			error: "Could not extract YouTube video content. Sign into Google in a supported Chromium browser for automatic access, or set GEMINI_API_KEY.",
 		};
 	}
 

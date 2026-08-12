@@ -8,10 +8,13 @@ import { test } from "node:test";
 const moduleUrl = new URL("../chrome-cookies.ts", import.meta.url).href;
 const python = process.platform === "win32" ? null : "python3";
 
-function createFixture(home, profile, rows = []) {
+function createFixture(home, profile, rows = [], options = {}) {
 	if (!python) return;
-	const base = process.platform === "darwin"
-		? join(home, "Library", "Application Support", "Google", "Chrome")
+	const { browser = "Chrome", targetPlatform = process.platform } = options;
+	const base = targetPlatform === "darwin"
+		? browser === "Brave"
+			? join(home, "Library", "Application Support", "BraveSoftware", "Brave-Browser")
+			: join(home, "Library", "Application Support", "Google", "Chrome")
 		: join(home, ".config", "google-chrome");
 	const dbPath = join(base, profile, "Cookies");
 	mkdirSync(join(base, profile), { recursive: true });
@@ -42,12 +45,12 @@ function makeEnvironment(home, bin, extra = {}) {
 	return env;
 }
 
-function writePasswordCommand(bin, countPath) {
-	const command = process.platform === "darwin" ? "security" : "secret-tool";
-	const script = `#!/bin/sh\nn=0\n[ -f "$COUNT_FILE" ] && n=$(cat "$COUNT_FILE")\nprintf '%s' $((n + 1)) > "$COUNT_FILE"\nprintf peanuts\n`;
+function writePasswordCommand(bin, countPath, targetPlatform = process.platform, argsPath) {
+	const command = targetPlatform === "darwin" ? "security" : "secret-tool";
+	const script = `#!/bin/sh\nn=0\n[ -f "$COUNT_FILE" ] && n=$(cat "$COUNT_FILE")\nprintf '%s' $((n + 1)) > "$COUNT_FILE"\n[ -n "$ARGS_FILE" ] && printf '%s\\n' "$@" > "$ARGS_FILE"\nprintf peanuts\n`;
 	writeFileSync(join(bin, command), script);
 	chmodSync(join(bin, command), 0o755);
-	return { COUNT_FILE: countPath };
+	return { COUNT_FILE: countPath, ...(argsPath ? { ARGS_FILE: argsPath } : {}) };
 }
 
 function writeFailThenSucceedPasswordCommand(bin, countPath) {
@@ -58,11 +61,14 @@ function writeFailThenSucceedPasswordCommand(bin, countPath) {
 	return { COUNT_FILE: countPath };
 }
 
-function runCookies(home, env, options = "{ requiredCookies: ['__Secure-1PSID', '__Secure-1PSIDTS'] }") {
+function runCookies(home, env, options = "{ requiredCookies: ['__Secure-1PSID', '__Secure-1PSIDTS'] }", platformOverride) {
+	const override = platformOverride
+		? `Object.defineProperty(process, "platform", { value: ${JSON.stringify(platformOverride)} }); `
+		: "";
 	const child = spawnSync(process.execPath, ["--experimental-strip-types", "--input-type=module"], {
 		encoding: "utf8",
 		env,
-		input: `const m = await import(${JSON.stringify(moduleUrl)}); const r = await m.getGoogleCookies(${options}); console.log(JSON.stringify({ result: r, diagnostic: m.getLastGoogleCookieDiagnostic() }));`,
+		input: `${override}const m = await import(${JSON.stringify(moduleUrl)}); const r = await m.getGoogleCookies(${options}); console.log(JSON.stringify({ result: r, diagnostic: m.getLastGoogleCookieDiagnostic() }));`,
 	});
 	assert.equal(child.status, 0, child.stderr);
 	return JSON.parse(child.stdout);
@@ -98,6 +104,26 @@ test("auto-discovery finds a non-default Chromium profile", (t) => {
 	Object.assign(env, writePasswordCommand(bin, join(home, "password-count")));
 	const result = runCookies(home, env);
 	assert.deepEqual(result.result.cookies, { "__Secure-1PSIDTS": "two", "__Secure-1PSID": "one" });
+	rmSync(home, { recursive: true, force: true });
+	rmSync(bin, { recursive: true, force: true });
+});
+
+test("auto-discovery finds a Brave profile on macOS", (t) => {
+	skipWithoutPython(t);
+	const home = mkdtempSync(join(tmpdir(), "pi-cookie-brave-profile-"));
+	const bin = mkdtempSync(join(tmpdir(), "pi-cookie-bin-"));
+	createFixture(home, "Default", [
+		["__Secure-1PSID", "one", ".google.com", null, 1],
+		["__Secure-1PSIDTS", "two", ".google.com", null, 2],
+	], { browser: "Brave", targetPlatform: "darwin" });
+	const env = makeEnvironment(home, bin);
+	const argsPath = join(home, "password-args");
+	Object.assign(env, writePasswordCommand(bin, join(home, "password-count"), "darwin", argsPath));
+	const result = runCookies(home, env, undefined, "darwin");
+	assert.deepEqual(result.result.cookies, { "__Secure-1PSIDTS": "two", "__Secure-1PSID": "one" });
+	assert.deepEqual(readFileSync(argsPath, "utf8").trim().split("\n"), [
+		"find-generic-password", "-w", "-a", "Brave", "-s", "Brave Safe Storage",
+	]);
 	rmSync(home, { recursive: true, force: true });
 	rmSync(bin, { recursive: true, force: true });
 });
