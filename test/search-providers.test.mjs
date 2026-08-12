@@ -26,6 +26,8 @@ function runChild(script, env) {
 		"SEARCHINFINITY_API_KEY",
 		"QUERIT_API_KEY",
 		"TAVILY_API_KEY",
+		"FIRECRAWL_BASE_URL",
+		"FIRECRAWL_API_KEY",
 		"JINA_API_KEY",
 		"SEARXNG_BASE_URL",
 		"EXA_API_KEY",
