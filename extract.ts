@@ -313,11 +313,17 @@ async function extractLocalFrames(
 	return { frames, error: frames.length === 0 && firstError ? firstError.error : null };
 }
 
-function safeVideoInfo(url: string): { info: ReturnType<typeof isVideoFile>; error?: string } {
+type LocalVideoInfoResult =
+	| { status: "video"; info: NonNullable<ReturnType<typeof isVideoFile>> }
+	| { status: "not-video" }
+	| { status: "invalid"; error: string };
+
+function safeVideoInfo(url: string): LocalVideoInfoResult {
 	try {
-		return { info: isVideoFile(url) };
+		const info = isVideoFile(url);
+		return info ? { status: "video", info } : { status: "not-video" };
 	} catch (err) {
-		return { info: null, error: errorMessage(err) };
+		return { status: "invalid", error: errorMessage(err) };
 	}
 }
 
@@ -380,10 +386,10 @@ export async function extractContent(
 		}
 
 		const localVideo = safeVideoInfo(url);
-		if (localVideo.error) {
+		if (localVideo.status === "invalid") {
 			return { url, title: "", content: "", error: localVideo.error };
 		}
-		if (localVideo.info) {
+		if (localVideo.status === "video") {
 			const durationResult = await getLocalVideoDuration(localVideo.info.absolutePath);
 			if (typeof durationResult !== "number") {
 				return { url, title: "Frames", content: durationResult.error, error: durationResult.error };
@@ -463,10 +469,10 @@ export async function extractContent(
 		}
 
 		const localVideo = safeVideoInfo(url);
-		if (localVideo.error) {
+		if (localVideo.status === "invalid") {
 			return { url, title: "", content: "", error: localVideo.error };
 		}
-		if (localVideo.info) {
+		if (localVideo.status === "video") {
 			if (spec.type === "range") {
 				const timestamps = frameCount
 					? computeRangeTimestamps(spec.start, spec.end, frameCount)
@@ -495,10 +501,10 @@ export async function extractContent(
 	}
 
 	const localVideo = safeVideoInfo(url);
-	if (localVideo.error) {
+	if (localVideo.status === "invalid") {
 		return { url, title: "", content: "", error: localVideo.error };
 	}
-	if (localVideo.info) {
+	if (localVideo.status === "video") {
 		try {
 			const result = await extractVideo(localVideo.info, signal, options);
 			if (signal?.aborted) return abortedResult(url);
