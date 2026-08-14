@@ -36,10 +36,14 @@ test("summary generation preserves registered provider behavior", async () => {
 				find: () => model,
 				getAvailable: () => [model],
 				getApiKeyAndHeaders: async () => ({ ok: true, apiKey: "test-key" }),
-				complete: async () => ({
-					stopReason: "stop",
-					content: [{ type: "text", text: "Summary from the registered gateway provider." }],
-				}),
+				complete: async (_model, _context, options) => {
+					assert.equal(options.apiKey, undefined);
+					assert.equal(options.headers, undefined);
+					return {
+						stopReason: "stop",
+						content: [{ type: "text", text: "Summary from the registered gateway provider." }],
+					};
+				},
 			},
 			cwd: process.cwd(),
 			isProjectTrusted: () => false,
