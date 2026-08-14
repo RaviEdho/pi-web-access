@@ -4,6 +4,8 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { Value } from "typebox/value";
+
 import initializeExtension from "../index.ts";
 
 const indexUrl = new URL("../index.ts", import.meta.url).href;
@@ -11,15 +13,19 @@ const indexSrc = readFileSync(new URL("../index.ts", import.meta.url), "utf8");
 const readmeSrc = readFileSync(new URL("../README.md", import.meta.url), "utf8");
 
 function runRegistration(config) {
+	return runRegistrationWithConfig(JSON.stringify(config) + "\n");
+}
+
+function runRegistrationWithConfig(configText) {
 	const root = mkdtempSync(join(tmpdir(), "pi-web-access-tool-names-"));
-	writeFileSync(join(root, "web-search.json"), JSON.stringify(config) + "\n", "utf8");
+	writeFileSync(join(root, "web-search.json"), configText, "utf8");
 	return spawnSync(process.execPath, ["--input-type=module"], {
 		input: `
 			const { default: initializeExtension } = await import(${JSON.stringify(indexUrl)});
 			const tools = [];
 			const commands = [];
 			initializeExtension({
-				registerTool(tool) { tools.push({ name: tool.name, description: tool.description, promptSnippet: tool.promptSnippet }); },
+				registerTool(tool) { tools.push({ name: tool.name, description: tool.description, promptSnippet: tool.promptSnippet, parameters: tool.parameters }); },
 				registerCommand(name) { commands.push(name); },
 				registerShortcut() {},
 				on() {},
@@ -54,6 +60,28 @@ function registrationError(config) {
 	assert.notEqual(child.status, 0, child.stdout);
 	return child.stderr;
 }
+
+test("malformed config falls back during extension registration", () => {
+	const child = runRegistrationWithConfig("{");
+	assert.equal(child.status, 0, child.stderr);
+	const registered = JSON.parse(child.stdout);
+	assert.deepEqual(registered.tools.map(tool => tool.name), ["web_search", "source_check", "fetch_content", "get_search_content"]);
+});
+
+test("search tools constrain numResults to integer values from 1 through 20", () => {
+	for (const name of ["web_search", "source_check"]) {
+		const schema = registeredTool({}, name).parameters.properties.numResults;
+		assert.equal(schema.type, "integer");
+		assert.equal(schema.minimum, 1);
+		assert.equal(schema.maximum, 20);
+		for (const value of [0, -1, 1.5, 21, Number.NaN, Number.POSITIVE_INFINITY]) {
+			assert.equal(Value.Check(schema, value), false, `${name} accepts ${value}`);
+		}
+		for (const value of [1, 5, 20]) {
+			assert.equal(Value.Check(schema, value), true, `${name} rejects ${value}`);
+		}
+	}
+});
 
 test("tool registration gates support legacy and per-tool config", () => {
 	assert.deepEqual(registeredToolNames({ webSearch: { enabled: false } }), ["fetch_content", "get_search_content"]);
