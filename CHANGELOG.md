@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Added opt-in `authFetch` profiles for local browser-cookie `fetch_content` requests. Thanks Luka (`@lmilojevicc`) for issue #254.
 - Added Firecrawl as a `web_search` provider using the existing Firecrawl configuration. Thanks Andrés Sanabria (`@andy-spike`) for issue #246.
 - Added macOS Brave profile support for opt-in Gemini Web browser-cookie access. Thanks Rajyavardhan Singh (`@imrajyavardhan12`) for PR #248.
 
