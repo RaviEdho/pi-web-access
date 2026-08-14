@@ -13,8 +13,12 @@ const indexSrc = readFileSync(new URL("../index.ts", import.meta.url), "utf8");
 const readmeSrc = readFileSync(new URL("../README.md", import.meta.url), "utf8");
 
 function runRegistration(config) {
+	return runRegistrationWithConfig(JSON.stringify(config) + "\n");
+}
+
+function runRegistrationWithConfig(configText) {
 	const root = mkdtempSync(join(tmpdir(), "pi-web-access-tool-names-"));
-	writeFileSync(join(root, "web-search.json"), JSON.stringify(config) + "\n", "utf8");
+	writeFileSync(join(root, "web-search.json"), configText, "utf8");
 	return spawnSync(process.execPath, ["--input-type=module"], {
 		input: `
 			const { default: initializeExtension } = await import(${JSON.stringify(indexUrl)});
@@ -56,6 +60,13 @@ function registrationError(config) {
 	assert.notEqual(child.status, 0, child.stdout);
 	return child.stderr;
 }
+
+test("malformed config falls back during extension registration", () => {
+	const child = runRegistrationWithConfig("{");
+	assert.equal(child.status, 0, child.stderr);
+	const registered = JSON.parse(child.stdout);
+	assert.deepEqual(registered.tools.map(tool => tool.name), ["web_search", "source_check", "fetch_content", "get_search_content"]);
+});
 
 test("search tools constrain numResults to integer values from 1 through 20", () => {
 	for (const name of ["web_search", "source_check"]) {

@@ -573,8 +573,8 @@ interface PendingCurate {
 const DEFAULT_MAX_INLINE_CONTENT_CHARS = 30_000;
 const MAX_INLINE_CONTENT_CHARS = 200_000;
 
-function getMaxInlineContentChars(): number {
-	const value = loadConfig().maxInlineContentChars;
+function getMaxInlineContentChars(config = loadConfig()): number {
+	const value = config.maxInlineContentChars;
 	if (typeof value !== "number" || !Number.isFinite(value) || !Number.isInteger(value) || value <= 0) {
 		return DEFAULT_MAX_INLINE_CONTENT_CHARS;
 	}
@@ -2635,7 +2635,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	if (getSearchContentEnabled) {
-		const maxInlineContentChars = getMaxInlineContentChars();
+		const maxInlineContentChars = getMaxInlineContentChars(initConfig);
 		pi.registerTool({
 		name: toolNames.getSearchContent,
 		label: "Get Search Content",
@@ -2689,7 +2689,6 @@ export default function (pi: ExtensionAPI) {
 					};
 				}
 				const serialized = JSON.stringify(artifact, null, 2);
-				const maxInlineContentChars = getMaxInlineContentChars();
 				const offset = params.offset ?? 0;
 				const limit = params.limit ?? maxInlineContentChars;
 				if (!Number.isInteger(offset) || offset < 0) {
@@ -2835,7 +2834,6 @@ export default function (pi: ExtensionAPI) {
 					}
 				}
 
-				const maxInlineContentChars = getMaxInlineContentChars();
 				const offset = params.offset ?? 0;
 				const limit = params.limit ?? maxInlineContentChars;
 				if (!Number.isInteger(offset) || offset < 0) {

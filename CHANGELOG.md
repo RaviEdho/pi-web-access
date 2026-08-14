@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 - Preserve summary draft completion routing through the model registry. Thanks `@limwa` for PR #249.
+- Constrain numeric tool parameters to supported integer ranges. Thanks `@jaudiger` for issue #250 and PR #251.
 
 ## [0.22.0] - 2026-08-11
 
