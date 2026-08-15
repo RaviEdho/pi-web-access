@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-08-15
+
 ### Added
 - Added opt-in `authFetch` profiles for local browser-cookie `fetch_content` requests. Thanks Luka (`@lmilojevicc`) for issue #254.
 - Added Firecrawl as a `web_search` provider using the existing Firecrawl configuration. Thanks Andrés Sanabria (`@andy-spike`) for issue #246.
