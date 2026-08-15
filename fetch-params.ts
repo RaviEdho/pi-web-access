@@ -8,6 +8,7 @@ export interface FetchContentParams {
 	model?: unknown;
 	mode?: unknown;
 	answerModel?: unknown;
+	auth?: unknown;
 }
 
 export interface NormalizedFetchContentParams {
@@ -20,6 +21,7 @@ export interface NormalizedFetchContentParams {
 		model?: string;
 		mode?: "readable" | "raw" | "answer";
 		answerModel?: string;
+		auth?: true | string;
 	};
 }
 
@@ -36,6 +38,7 @@ export function normalizeFetchContentParams(params: FetchContentParams): Normali
 	const model = normalizeOptionalString(params.model);
 	const mode = normalizeMode(params.mode);
 	const answerModel = normalizeOptionalString(params.answerModel);
+	const auth = normalizeAuth(params.auth);
 
 	return {
 		urlList,
@@ -47,6 +50,7 @@ export function normalizeFetchContentParams(params: FetchContentParams): Normali
 			...(model !== undefined ? { model } : {}),
 			...(mode !== undefined ? { mode } : {}),
 			...(answerModel !== undefined ? { answerModel } : {}),
+			...(auth !== undefined ? { auth } : {}),
 		},
 	};
 }
@@ -72,6 +76,16 @@ function normalizeMode(value: unknown): "readable" | "raw" | "answer" | undefine
 	if (value === undefined) return undefined;
 	if (value === "readable" || value === "raw" || value === "answer") return value;
 	throw new Error('mode must be "readable", "raw", or "answer"');
+}
+
+function normalizeAuth(value: unknown): true | string | undefined {
+	if (value === undefined || value === false) return undefined;
+	if (value === true) return true;
+	if (typeof value === "string") {
+		const trimmed = value.trim();
+		if (trimmed) return trimmed;
+	}
+	throw new Error("auth must be a profile name, true, or false");
 }
 
 function normalizeOptionalFrameCount(value: unknown): number | undefined {

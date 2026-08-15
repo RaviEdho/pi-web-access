@@ -101,6 +101,12 @@ test("command registration gates default to enabled", () => {
 	}), ["curator", "google-account"]);
 });
 
+test("fetch_content schema exposes auth profile opt-in", () => {
+	const schema = registeredTool({}, "fetch_content").parameters.properties.auth;
+	assert.ok(schema);
+	assert.deepEqual(schema.anyOf.map(option => option.type), ["string", "boolean"]);
+});
+
 test("registered tools do not advertise disabled get_search_content", () => {
 	const fetchTool = registeredTool({ tools: { getSearchContent: { enabled: false } } }, "fetch_content");
 	assert.ok(fetchTool);

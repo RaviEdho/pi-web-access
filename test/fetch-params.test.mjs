@@ -75,3 +75,12 @@ test("fetch_content params validate fetch and answer modes", () => {
 	);
 	assert.throws(() => normalizeFetchContentParams({ mode: "invalid" }), /mode must be/);
 });
+
+
+test("fetch_content params validate auth profile input", () => {
+	assert.equal(normalizeFetchContentParams({ auth: true }).options.auth, true);
+	assert.equal(normalizeFetchContentParams({ auth: " work " }).options.auth, "work");
+	assert.equal(normalizeFetchContentParams({ auth: false }).options.auth, undefined);
+	assert.throws(() => normalizeFetchContentParams({ auth: " " }), /auth must be/);
+	assert.throws(() => normalizeFetchContentParams({ auth: 1 }), /auth must be/);
+});

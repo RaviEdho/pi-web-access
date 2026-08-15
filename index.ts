@@ -4,6 +4,7 @@ import { Type } from "typebox";
 import { StringEnum, complete, type Api, type ImageContent, type Model, type TextContent } from "@earendil-works/pi-ai/compat";
 import type { ExtractedContent, ExtractOptions } from "./extract.ts";
 import { normalizeFetchContentParams } from "./fetch-params.ts";
+import { resolveAuthFetchProfile, type AuthFetchProfile } from "./auth-fetch.ts";
 import { findContent, type FindMode } from "./content-find.ts";
 import { answerFromPage } from "./page-query.ts";
 import { clearCloneCache } from "./github-extract.ts";
@@ -583,6 +584,12 @@ function getMaxInlineContentChars(config = loadConfig()): number {
 
 function stripThumbnails(results: ExtractedContent[]): ExtractedContent[] {
 	return results.map(({ thumbnail, frames, ...rest }) => rest);
+}
+
+function storeFetchResult(pi: { appendEntry(type: string, data: unknown): void }, responseId: string, data: StoredSearchData & { type: "fetch"; urls: ExtractedContent[] }, authProfile?: AuthFetchProfile): boolean {
+	if (authProfile?.cache === "off") return false;
+	pi.appendEntry("web-search-results", storeFetchedContentResult(responseId, data));
+	return true;
 }
 
 function initialContentSlice(content: string, maxChars: number): {
@@ -2348,6 +2355,9 @@ export default function (pi: ExtensionAPI) {
 			model: Type.Optional(Type.String({
 				description: "Override the Gemini model for video/YouTube analysis (e.g. 'gemini-3.6-flash'). Defaults to config or gemini-3.6-flash.",
 			})),
+			auth: Type.Optional(Type.Union([Type.String(), Type.Boolean()], {
+				description: "Opt into an authFetch profile for local browser-cookie fetching. Use a profile name, or true only when exactly one profile exists.",
+			})),
 		}),
 
 		async execute(_toolCallId, params, signal, onUpdate, ctx): Promise<AgentToolResult<Record<string, unknown>>> {
@@ -2372,6 +2382,18 @@ export default function (pi: ExtensionAPI) {
 			if (mode === "answer" && options.model) {
 				return { content: [{ type: "text", text: "Error: use answerModel, not model, with mode answer." }], details: { error: "model is incompatible with mode answer" } };
 			}
+			if (mode === "answer" && options.auth !== undefined) {
+				return { content: [{ type: "text", text: "Error: auth cannot be combined with mode answer." }], details: { error: "auth cannot be combined with mode answer" } };
+			}
+			let authFetchProfile: AuthFetchProfile | undefined;
+			if (options.auth !== undefined) {
+				try {
+					authFetchProfile = resolveAuthFetchProfile(options.auth);
+				} catch (err) {
+					const error = err instanceof Error ? err.message : String(err);
+					return { content: [{ type: "text", text: `Error: ${error}` }], details: { error } };
+				}
+			}
 			if (urlList.length === 0) {
 				return {
 					content: [{ type: "text", text: "Error: No URL provided." }],
@@ -2384,13 +2406,13 @@ export default function (pi: ExtensionAPI) {
 				details: { phase: "fetch", progress: 0 },
 			});
 
-			const { answerModel: _answerModel, ...extractionOptions } = options;
+			const { answerModel: _answerModel, auth: _auth, ...extractionOptions } = options;
 			const fetchOptions = mode === "answer"
 				? (() => {
 					const { prompt: _prompt, ...rest } = extractionOptions;
-					return rest;
+					return { ...rest, ...(authFetchProfile ? { authFetchProfile } : {}) };
 				})()
-				: extractionOptions;
+				: { ...extractionOptions, ...(authFetchProfile ? { authFetchProfile } : {}) };
 			const fetchResults = await fetchAllContent(urlList, signal, fetchOptions);
 			const presentedResults = mode === "answer"
 				? await Promise.all(fetchResults.map(async result => {
@@ -2414,7 +2436,6 @@ export default function (pi: ExtensionAPI) {
 			const successful = presentedResults.filter((r) => !r.error).length;
 			const totalChars = presentedResults.reduce((sum, r) => sum + r.content.length, 0);
 
-			// ALWAYS store results (even for single URL)
 			const responseId = generateId();
 			const data = {
 				id: responseId,
@@ -2422,7 +2443,7 @@ export default function (pi: ExtensionAPI) {
 				timestamp: Date.now(),
 				urls: stripThumbnails(fetchResults),
 			} satisfies StoredSearchData & { type: "fetch"; urls: ExtractedContent[] };
-			pi.appendEntry("web-search-results", storeFetchedContentResult(responseId, data));
+			const storedContent = storeFetchResult(pi, responseId, data, authFetchProfile);
 
 			// Single URL: return content directly (possibly truncated) with responseId
 			if (urlList.length === 1) {
@@ -2430,7 +2451,7 @@ export default function (pi: ExtensionAPI) {
 				if (result.error) {
 					return {
 						content: [{ type: "text", text: `Error: ${result.error}` }],
-						details: { urls: urlList, urlCount: 1, successful: 0, error: result.error, responseId, prompt: params.prompt, timestamp: params.timestamp, frames: params.frames },
+						details: { urls: urlList, urlCount: 1, successful: 0, error: result.error, ...(storedContent ? { responseId } : {}), prompt: params.prompt, timestamp: params.timestamp, frames: params.frames },
 					};
 				}
 
@@ -2441,9 +2462,11 @@ export default function (pi: ExtensionAPI) {
 
 				if (truncated) {
 					output += `\n\n---\nShowing ${slice.endOffset} of ${fullLength} chars, ${slice.shownBytes} of ${slice.totalBytes} bytes, and ${slice.shownLines} of ${slice.totalLines} lines. `;
-					output += getSearchContentEnabled
-						? `Use ${toolNames.getSearchContent}({ responseId: "${responseId}", urlIndex: 0, offset: ${slice.endOffset} }) for the next slice.`
-						: "Content retrieval is not registered.";
+					output += storedContent
+						? getSearchContentEnabled
+							? `Use ${toolNames.getSearchContent}({ responseId: "${responseId}", urlIndex: 0, offset: ${slice.endOffset} }) for the next slice.`
+							: "Content retrieval is not registered."
+						: "Authenticated fetch cache is off; repeat the fetch to read more.";
 				}
 
 				const content: Array<TextContent | ImageContent> = [];
@@ -2466,7 +2489,7 @@ export default function (pi: ExtensionAPI) {
 						successful: 1,
 						totalChars: fullLength,
 						title: result.title,
-						responseId,
+						...(storedContent ? { responseId } : {}),
 						truncated,
 						hasImage: imageCount > 0,
 						imageCount,
@@ -2494,19 +2517,21 @@ export default function (pi: ExtensionAPI) {
 					output += `- ${title || url} (${content.length} chars)\n`;
 				}
 			}
-			output += getSearchContentEnabled
-				? `\n---\nUse ${toolNames.getSearchContent}({ responseId: "${responseId}", urlIndex: 0 }) to retrieve bounded content slices.`
-				: "\n---\nContent retrieval is not registered.";
+			output += storedContent
+				? getSearchContentEnabled
+					? `\n---\nUse ${toolNames.getSearchContent}({ responseId: "${responseId}", urlIndex: 0 }) to retrieve bounded content slices.`
+					: "\n---\nContent retrieval is not registered."
+				: "\n---\nAuthenticated fetch cache is off; repeat the fetch to read content.";
 
 			return {
 				content: [{ type: "text", text: output }],
-				details: { urls: urlList, urlCount: urlList.length, successful, totalChars, responseId },
+				details: { urls: urlList, urlCount: urlList.length, successful, totalChars, ...(storedContent ? { responseId } : {}) },
 			};
 		},
 
 		renderCall(args, theme) {
 			const { urlList, options } = normalizeFetchContentParams(args);
-			const { prompt, timestamp, frames, model, mode, answerModel } = options;
+			const { prompt, timestamp, frames, model, mode, answerModel, auth } = options;
 			if (urlList.length === 0) {
 				return new Text(theme.fg("toolTitle", theme.bold("fetch ")) + theme.fg("error", "(no URL)"), 0, 0);
 			}
@@ -2542,6 +2567,9 @@ export default function (pi: ExtensionAPI) {
 			}
 			if (answerModel) {
 				lines.push(theme.fg("dim", "  answer model: ") + theme.fg("warning", answerModel));
+			}
+			if (auth !== undefined) {
+				lines.push(theme.fg("dim", "  auth: ") + theme.fg("warning", auth === true ? "true" : auth));
 			}
 			return new Text(lines.join("\n"), 0, 0);
 		},
