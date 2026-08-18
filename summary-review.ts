@@ -363,13 +363,13 @@ export async function generateSummaryDraft(
 
 				const contentParts = Array.isArray(response.content) ? response.content : [];
 				const summary = contentParts
-					.map(part => getTextFromContentPart(part))
-					.filter(text => text.trim().length > 0)
+					.map((part: unknown) => getTextFromContentPart(part))
+					.filter((text: string) => text.trim().length > 0)
 					.join("\n")
 					.trim();
 
 				if (summary.length === 0) {
-					const partTypes = contentParts.map(part => getContentPartType(part));
+					const partTypes = contentParts.map((part: unknown) => getContentPartType(part));
 					const typesLabel = partTypes.length > 0 ? partTypes.join(", ") : "none";
 					throw new Error(`Summary model returned empty response (content parts: ${typesLabel})`);
 				}
