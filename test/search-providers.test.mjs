@@ -982,6 +982,92 @@ test("OpenAI search uses configured model with selected registry auth", async ()
 	assert.equal(output.selectedModel, "gpt-5.10");
 });
 
+test("OpenAI search honors configured provider priority", async () => {
+	const home = await mkdtemp(join(tmpdir(), "pi-web-access-openai-providers-"));
+	await writeFile(join(home, "web-search.json"), JSON.stringify({
+		openaiSearchProviders: ["unregistered-provider", "openai-codex-work", "openai-codex"],
+	}) + "\n");
+	const child = runChild(`
+		let capturedAuthorization = "";
+		globalThis.fetch = async (url, init) => {
+			capturedAuthorization = init.headers.Authorization;
+			return new Response(JSON.stringify({
+				output: [{ type: "message", content: [{ type: "output_text", text: "second account answer" }] }],
+			}), { status: 200, headers: { "content-type": "application/json" } });
+		};
+
+		const models = [
+			{ provider: "openai-codex", id: "gpt-5.6-terra" },
+			{ provider: "openai-codex-work", id: "gpt-5.6-terra" },
+		];
+		const ctx = {
+			modelRegistry: {
+				getAll: () => models,
+				getApiKeyAndHeaders: async (model) => ({ ok: true, apiKey: model.provider + "-key", headers: {} }),
+			},
+		};
+
+		const { searchWithOpenAI } = await import(${JSON.stringify(openaiModuleUrl)});
+		const result = await searchWithOpenAI("priority docs", { numResults: 1 }, ctx);
+		console.log(JSON.stringify({ answer: result.answer, capturedAuthorization }));
+	`, {
+		HOME: home,
+		USERPROFILE: home,
+		PI_CODING_AGENT_DIR: home,
+	});
+
+	assert.equal(child.status, 0, child.stderr);
+	const output = JSON.parse(child.stdout.trim());
+	assert.equal(output.answer, "second account answer");
+	assert.equal(output.capturedAuthorization, "Bearer openai-codex-work-key");
+});
+
+test("OpenAI search rejects invalid openaiSearchProviders", async () => {
+	const home = await mkdtemp(join(tmpdir(), "pi-web-access-openai-providers-invalid-"));
+	await writeFile(join(home, "web-search.json"), JSON.stringify({
+		openaiSearchProviders: ["openai-codex", ""],
+	}) + "\n");
+	const child = runChild(`
+		const ctx = {
+			modelRegistry: {
+				getAll: () => [{ provider: "openai-codex", id: "gpt-5.6-terra" }],
+				getApiKeyAndHeaders: async () => ({ ok: true, apiKey: "registry-key", headers: {} }),
+			},
+		};
+
+		let fetchCalls = 0;
+		globalThis.fetch = async () => {
+			fetchCalls += 1;
+			return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+		};
+
+		const { searchWithOpenAI } = await import(${JSON.stringify(openaiModuleUrl)});
+		const outcomes = {};
+		for (const [label, maybeCtx] of [["withContext", ctx], ["withoutContext", undefined]]) {
+			try {
+				await searchWithOpenAI("invalid config", { numResults: 1 }, maybeCtx);
+				outcomes[label] = { threw: false };
+			} catch (err) {
+				outcomes[label] = { threw: true, message: err.message };
+			}
+		}
+		console.log(JSON.stringify({ outcomes, fetchCalls }));
+	`, {
+		HOME: home,
+		USERPROFILE: home,
+		PI_CODING_AGENT_DIR: home,
+		OPENAI_API_KEY: "sk-must-not-be-billed",
+	});
+
+	assert.equal(child.status, 0, child.stderr);
+	const output = JSON.parse(child.stdout.trim());
+	assert.equal(output.outcomes.withContext.threw, true);
+	assert.match(output.outcomes.withContext.message, /openaiSearchProviders/);
+	assert.equal(output.outcomes.withoutContext.threw, true);
+	assert.match(output.outcomes.withoutContext.message, /openaiSearchProviders/);
+	assert.equal(output.fetchCalls, 0);
+});
+
 test("Gemini API search uses its search-only default model", async () => {
 	const home = await mkdtemp(join(tmpdir(), "pi-web-access-gemini-default-"));
 	const child = runChild(`
