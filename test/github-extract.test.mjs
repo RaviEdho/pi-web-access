@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { test } from "node:test";
@@ -39,6 +40,114 @@ async function waitForProcessExit(pid, timeoutMs = 2000) {
 	}
 	return !processIsAlive(pid);
 }
+
+test("parseGitHubUrl rejects malformed identifiers and preserves normal GitHub paths", async () => {
+	const { parseGitHubUrl } = await import(extractModuleUrl);
+	assert.equal(parseGitHubUrl("https://github.com/%2E%2E%2Fvictim/repo"), null);
+	assert.equal(parseGitHubUrl("https://github.com/owner/repo%2Fother"), null);
+	assert.equal(parseGitHubUrl("https://github.com/owner%ZZ/repo"), null);
+	assert.deepEqual(parseGitHubUrl("https://github.com/owner/repo.git"), {
+		owner: "owner", repo: "repo", refIsFullSha: false, type: "root",
+	});
+	assert.deepEqual(parseGitHubUrl("https://github.com/owner/repo/blob/main/src/file.ts"), {
+		owner: "owner", repo: "repo", ref: "main", refIsFullSha: false, path: "src/file.ts", type: "blob",
+	});
+	assert.deepEqual(parseGitHubUrl("https://github.com/owner/repo/tree/feature%2Fbranch/src"), {
+		owner: "owner", repo: "repo", ref: "feature/branch", refIsFullSha: false, path: "src", type: "tree",
+	});
+});
+
+test("malformed GitHub identifiers cannot delete outside the clone cache", async () => {
+	const root = await mkdtemp(join(tmpdir(), "pi-web-access-github-traversal-"));
+	const agentDir = join(root, "agent-dir");
+	const victim = join(root, "victim", "repo");
+	await mkdir(agentDir, { recursive: true });
+	await mkdir(victim, { recursive: true });
+	await writeFile(join(victim, "marker.txt"), "preserve", "utf8");
+	await writeFile(join(agentDir, "web-search.json"), JSON.stringify({ githubClone: { clonePath: join(root, "cache") } }), "utf8");
+
+	const child = spawnSync(process.execPath, ["--input-type=module"], {
+		input: `
+			const { extractGitHub } = await import(${JSON.stringify(extractModuleUrl)});
+			console.log(JSON.stringify(await extractGitHub("https://github.com/..%2Fvictim/repo")));
+		`,
+		encoding: "utf8",
+		env: { ...process.env, PI_CODING_AGENT_DIR: agentDir },
+	});
+
+	assert.equal(child.status, 0, child.stderr);
+	assert.equal(JSON.parse(child.stdout), null);
+	assert.equal(await readFile(join(victim, "marker.txt"), "utf8"), "preserve");
+});
+
+test("clearCloneCache removes only its verified clone entry", { skip: process.platform === "win32" }, async () => {
+	const root = await mkdtemp(join(tmpdir(), "pi-web-access-github-cleanup-"));
+	const agentDir = join(root, "agent-dir");
+	const binDir = join(root, "bin");
+	const clonePath = join(root, "repos");
+	const sibling = join(clonePath, "preserve.txt");
+	await mkdir(agentDir, { recursive: true });
+	await mkdir(binDir, { recursive: true });
+	await mkdir(clonePath, { recursive: true });
+	await writeFile(sibling, "preserve", "utf8");
+	await writeFile(join(agentDir, "web-search.json"), JSON.stringify({ githubClone: { clonePath } }), "utf8");
+	await writeFakeExecutable(binDir, "gh", "process.exit(1);");
+	await writeFakeExecutable(binDir, "git", `
+		const { mkdirSync, writeFileSync } = require("node:fs");
+		const { join } = require("node:path");
+		const destination = process.argv.at(-1);
+		mkdirSync(destination, { recursive: true });
+		writeFileSync(join(destination, "README.md"), "fixture");
+	`);
+	const digest = createHash("sha256").update(JSON.stringify(["owner", "repo", null])).digest("hex");
+	const localPath = join(clonePath, digest);
+
+	const child = spawnSync(process.execPath, ["--input-type=module"], {
+		input: `
+			const { clearCloneCache, extractGitHub } = await import(${JSON.stringify(extractModuleUrl)});
+			await extractGitHub("https://github.com/owner/repo");
+			clearCloneCache();
+		`,
+		encoding: "utf8",
+		env: { ...process.env, PATH: `${binDir}${delimiter}${process.env.PATH || ""}`, PI_CODING_AGENT_DIR: agentDir },
+	});
+
+	assert.equal(child.status, 0, child.stderr);
+	assert.equal(existsSync(localPath), false);
+	assert.equal(await readFile(sibling, "utf8"), "preserve");
+});
+
+test("clone cleanup unlinks a direct-child symlink without deleting its target", { skip: process.platform === "win32" }, async () => {
+	const root = await mkdtemp(join(tmpdir(), "pi-web-access-github-symlink-"));
+	const agentDir = join(root, "agent-dir");
+	const binDir = join(root, "bin");
+	const clonePath = join(root, "repos");
+	const outside = join(root, "outside");
+	await mkdir(agentDir, { recursive: true });
+	await mkdir(binDir, { recursive: true });
+	await mkdir(clonePath, { recursive: true });
+	await mkdir(outside, { recursive: true });
+	await writeFile(join(outside, "marker.txt"), "preserve", "utf8");
+	await writeFile(join(agentDir, "web-search.json"), JSON.stringify({ githubClone: { clonePath } }), "utf8");
+	await writeFakeExecutable(binDir, "gh", "process.exit(1);");
+	await writeFakeExecutable(binDir, "git", "process.exit(1);");
+	const digest = createHash("sha256").update(JSON.stringify(["owner", "repo", null])).digest("hex");
+	const localPath = join(clonePath, digest);
+	await symlink(outside, localPath, "dir");
+
+	const child = spawnSync(process.execPath, ["--input-type=module"], {
+		input: `
+			const { extractGitHub } = await import(${JSON.stringify(extractModuleUrl)});
+			await extractGitHub("https://github.com/owner/repo");
+		`,
+		encoding: "utf8",
+		env: { ...process.env, PATH: `${binDir}${delimiter}${process.env.PATH || ""}`, PI_CODING_AGENT_DIR: agentDir },
+	});
+
+	assert.equal(child.status, 0, child.stderr);
+	assert.equal(existsSync(localPath), false);
+	assert.equal(await readFile(join(outside, "marker.txt"), "utf8"), "preserve");
+});
 
 test("normalizeClonePath expands ~ to HOME", async () => {
 	const root = await mkdtemp(join(tmpdir(), "pi-web-access-github-expand-"));
