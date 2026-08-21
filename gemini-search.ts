@@ -216,6 +216,24 @@ function shouldTryOpenAIInAuto(options: SearchOptions): boolean {
 	return true;
 }
 
+function isOpenAICodexSelected(ctx?: ExtensionContext): boolean {
+	return ctx?.model?.provider === "openai-codex";
+}
+
+async function tryOpenAIInAuto(query: string, options: FullSearchOptions, fallbackErrors: string[]): Promise<AttributedSearchResponse | null> {
+	if (!shouldTryOpenAIInAuto(options)) return null;
+	try {
+		if (await isOpenAISearchAvailable(options.extensionContext)) {
+			const result = await searchWithOpenAI(query, options, options.extensionContext);
+			return { ...result, provider: "openai" };
+		}
+	} catch (err) {
+		if (isAbortError(err)) throw err;
+		fallbackErrors.push(`OpenAI: ${errorMessage(err)}`);
+	}
+	return null;
+}
+
 async function searchWithGemini(
 	query: string,
 	options: SearchOptions,
@@ -524,16 +542,11 @@ export async function search(query: string, options: FullSearchOptions = {}): Pr
 		}
 	}
 
-	if (shouldTryOpenAIInAuto(options)) {
-		try {
-			if (await isOpenAISearchAvailable(options.extensionContext)) {
-				const result = await searchWithOpenAI(query, options, options.extensionContext);
-				return { ...result, provider: "openai" };
-			}
-		} catch (err) {
-			if (isAbortError(err)) throw err;
-			fallbackErrors.push(`OpenAI: ${errorMessage(err)}`);
-		}
+	let triedOpenAI = false;
+	if (!options.extensionContext || isOpenAICodexSelected(options.extensionContext)) {
+		triedOpenAI = true;
+		const result = await tryOpenAIInAuto(query, options, fallbackErrors);
+		if (result) return result;
 	}
 
 	if (isExaAvailable()) {
@@ -544,6 +557,11 @@ export async function search(query: string, options: FullSearchOptions = {}): Pr
 			if (err instanceof CredentialResolutionError || isAbortError(err)) throw err;
 			fallbackErrors.push(`Exa: ${errorMessage(err)}`);
 		}
+	}
+
+	if (!triedOpenAI) {
+		const result = await tryOpenAIInAuto(query, options, fallbackErrors);
+		if (result) return result;
 	}
 
 	if (isBraveAvailable()) {

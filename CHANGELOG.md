@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+- Prefer Codex-backed OpenAI search in `auto` mode when the active Pi model is `openai-codex`; otherwise prefer Exa before OpenAI.
+
 ## [0.24.1] - 2026-08-21
 
 ### Added

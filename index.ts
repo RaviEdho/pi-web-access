@@ -152,7 +152,7 @@ interface WebSearchConfig {
 	};
 }
 
-interface ProviderAvailability {
+export interface ProviderAvailability {
 	all: boolean;
 	openai: boolean;
 	brave: boolean;
@@ -184,7 +184,7 @@ interface ProviderAvailability {
 
 type WebSearchWorkflow = "none" | "summary-review" | "auto-summary";
 type CuratorWorkflow = "summary-review";
-type CuratorProvider = Exclude<SearchProvider, "auto">;
+export type CuratorProvider = Exclude<SearchProvider, "auto">;
 type SummaryWorkflow = "summary-review" | "auto-summary";
 
 interface CuratorBootstrap {
@@ -420,13 +420,16 @@ async function getProviderAvailability(ctx: ExtensionContext): Promise<ProviderA
 	};
 }
 
-function shouldPreferOpenAI(options?: Pick<PendingCurate, "numResults" | "recencyFilter">): boolean {
-	if (!options) return true;
-	if (options.recencyFilter) return false;
-	if (typeof options.numResults === "number" && Number.isFinite(options.numResults) && Math.floor(options.numResults) !== 5) {
+function shouldUseOpenAICodexDefault(ctx?: Pick<ExtensionContext, "model">): boolean {
+	return ctx?.model?.provider === "openai-codex";
+}
+
+function shouldPreferOpenAI(options: Pick<PendingCurate, "numResults" | "recencyFilter"> | undefined, preferOpenAICodexDefault: boolean): boolean {
+	if (options?.recencyFilter) return false;
+	if (typeof options?.numResults === "number" && Number.isFinite(options.numResults) && Math.floor(options.numResults) !== 5) {
 		return false;
 	}
-	return true;
+	return preferOpenAICodexDefault;
 }
 
 async function loadCuratorBootstrap(
@@ -439,15 +442,25 @@ async function loadCuratorBootstrap(
 	if (Array.isArray(provider)) availableProviders.all = true;
 	return {
 		availableProviders,
-		defaultProvider: resolveProvider(provider, availableProviders, options),
+		defaultProvider: resolveCuratorDefaultProvider(provider, availableProviders, ctx, options),
 		timeoutSeconds: getCuratorTimeoutSeconds(),
 	};
+}
+
+export function resolveCuratorDefaultProvider(
+	provider: SearchProviderSelection,
+	available: ProviderAvailability,
+	ctx?: Pick<ExtensionContext, "model">,
+	options?: Pick<PendingCurate, "numResults" | "recencyFilter">,
+): CuratorProvider {
+	return resolveProvider(provider, available, options, shouldUseOpenAICodexDefault(ctx));
 }
 
 function firstAvailableProvider(available: ProviderAvailability, preferOpenAI: boolean, fallback: ResolvedSearchProvider): ResolvedSearchProvider {
 	if (available.searxng) return "searxng";
 	if (preferOpenAI && available.openai) return "openai";
 	if (available.exa) return "exa";
+	if (available.openai) return "openai";
 	if (available.brave) return "brave";
 	if (available.parallel) return "parallel";
 	if (available.tinyfish) return "tinyfish";
@@ -470,9 +483,10 @@ function resolveProvider(
 	provider: SearchProviderSelection,
 	available: ProviderAvailability,
 	options?: Pick<PendingCurate, "numResults" | "recencyFilter">,
+	preferOpenAICodexDefault = false,
 ): CuratorProvider {
 	if (Array.isArray(provider)) return "all";
-	const preferOpenAI = shouldPreferOpenAI(options);
+	const preferOpenAI = shouldPreferOpenAI(options, preferOpenAICodexDefault);
 
 	if (provider === "auto") {
 		const routing = getConfiguredSearchRouting();
@@ -1660,7 +1674,7 @@ export default function (pi: ExtensionAPI) {
 		name: toolNames.webSearch,
 		label: "Web Search",
 		description:
-			`Search the web using OpenAI, Brave, Parallel, Parallel MCP, TinyFish, Search1API, Searchinfinity, Querit, Tavily, Firecrawl, Jina, SERPdive, Kagi, Bocha, Ollama, SearXNG, DuckDuckGo, Exa, Perplexity, Gemini, AnySearch, Valyu, xAI, Bright Data, SerpBase, or Serper. Pass a provider array to search only those providers simultaneously, or use provider "all" to search every eligible provider except Parallel MCP, DuckDuckGo, AnySearch, Valyu, xAI, Bright Data, SerpBase, and Serper. Returns an AI-synthesized answer with source citations. OpenAI search uses a Codex subscription or OpenAI API key; xAI search uses a SuperGrok/X Premium subscription or xAI API key. Parallel MCP, DuckDuckGo, AnySearch, Valyu, xAI, Bright Data, SerpBase, and Serper are available only when explicitly selected. For comprehensive research, prefer queries (plural) with 2-4 varied angles over a single query — each query gets its own synthesized answer, so varying phrasing and scope gives much broader coverage. When includeContent is true, full page content is fetched in the background. Searches auto-open the interactive browser curator and stream results live; set workflow to "none" to skip curation or "auto-summary" for a model-generated summary without the browser curator. The configured provider is used when provider is omitted or set to auto; omit provider unless explicitly overriding it. Without a configured provider, auto-selects OpenAI when suitable and available, then Exa, Brave, Parallel, TinyFish, Search1API, Searchinfinity, Querit, Tavily, Firecrawl, Jina, SERPdive, Kagi, Bocha, Ollama, Perplexity, Gemini API, or Gemini Web. When SearXNG is configured, it is preferred first for local/private search.`,
+			`Search the web using OpenAI, Brave, Parallel, Parallel MCP, TinyFish, Search1API, Searchinfinity, Querit, Tavily, Firecrawl, Jina, SERPdive, Kagi, Bocha, Ollama, SearXNG, DuckDuckGo, Exa, Perplexity, Gemini, AnySearch, Valyu, xAI, Bright Data, SerpBase, or Serper. Pass a provider array to search only those providers simultaneously, or use provider "all" to search every eligible provider except Parallel MCP, DuckDuckGo, AnySearch, Valyu, xAI, Bright Data, SerpBase, and Serper. Returns an AI-synthesized answer with source citations. OpenAI search uses a Codex subscription or OpenAI API key; xAI search uses a SuperGrok/X Premium subscription or xAI API key. Parallel MCP, DuckDuckGo, AnySearch, Valyu, xAI, Bright Data, SerpBase, and Serper are available only when explicitly selected. For comprehensive research, prefer queries (plural) with 2-4 varied angles over a single query — each query gets its own synthesized answer, so varying phrasing and scope gives much broader coverage. When includeContent is true, full page content is fetched in the background. Searches auto-open the interactive browser curator and stream results live; set workflow to "none" to skip curation or "auto-summary" for a model-generated summary without the browser curator. The configured provider is used when provider is omitted or set to auto; omit provider unless explicitly overriding it. Without a configured provider, SearXNG is preferred first for local/private search. When the active Pi model is openai-codex, Codex-backed OpenAI search is preferred next. Otherwise Exa is preferred before OpenAI, then Brave, Parallel, TinyFish, Search1API, Searchinfinity, Querit, Tavily, Firecrawl, Jina, SERPdive, Kagi, Bocha, Ollama, Perplexity, Gemini API, or Gemini Web.`,
 		promptSnippet:
 			"Use for web research questions. Prefer {queries:[...]} with 2-4 varied angles over a single query for broader coverage. Omit provider unless explicitly overriding the configured default.",
 		parameters: Type.Object({
