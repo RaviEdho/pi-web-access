@@ -47,10 +47,11 @@ function encryptWindowsCookie(value, key, version = "v10", hostKey) {
 	return Buffer.concat([Buffer.from(version), nonce, cipher.update(plaintext), cipher.final(), cipher.getAuthTag()]).toString("hex");
 }
 
-function writeWindowsDpapiCommand(bin) {
-	const script = "#!/bin/sh\nlast=\nfor arg do last=$arg; done\n[ \"$last\" = \"$DPAPI_PROTECTED\" ] || exit 1\nprintf '%s' \"$DPAPI_KEY\"\n";
+function writeWindowsDpapiCommand(bin, argsPath) {
+	const script = "#!/bin/sh\n[ -n \"$ARGS_FILE\" ] && printf '%s\\n' \"$@\" > \"$ARGS_FILE\"\nencoded=0\nfor arg do [ \"$arg\" = \"-EncodedCommand\" ] && encoded=1; [ \"$arg\" = \"$DPAPI_PROTECTED\" ] && exit 1; done\n[ \"$encoded\" = 1 ] || exit 1\n[ \"$PIWA_PROTECTED\" = \"$DPAPI_PROTECTED\" ] || exit 1\nprintf '%s' \"$DPAPI_KEY\"\n";
 	writeFileSync(join(bin, "powershell.exe"), script);
 	chmodSync(join(bin, "powershell.exe"), 0o755);
+	return argsPath ? { ARGS_FILE: argsPath } : {};
 }
 
 function makeEnvironment(home, bin, extra = {}) {
@@ -84,13 +85,17 @@ function writeFailThenSucceedPasswordCommand(bin, countPath) {
 }
 
 function runCookies(home, env, options = "{ requiredCookies: ['__Secure-1PSID', '__Secure-1PSIDTS'] }", platformOverride) {
+	return runCookieScript(env, `const r = await m.getGoogleCookies(${options}); console.log(JSON.stringify({ result: r, diagnostic: m.getLastGoogleCookieDiagnostic() }));`, platformOverride);
+}
+
+function runCookieScript(env, body, platformOverride) {
 	const override = platformOverride
 		? `Object.defineProperty(process, "platform", { value: ${JSON.stringify(platformOverride)} }); `
 		: "";
 	const child = spawnSync(process.execPath, ["--experimental-strip-types", "--input-type=module"], {
 		encoding: "utf8",
 		env,
-		input: `${override}const m = await import(${JSON.stringify(moduleUrl)}); const r = await m.getGoogleCookies(${options}); console.log(JSON.stringify({ result: r, diagnostic: m.getLastGoogleCookieDiagnostic() }));`,
+		input: `${override}const m = await import(${JSON.stringify(moduleUrl)}); ${body}`,
 	});
 	assert.equal(child.status, 0, child.stderr);
 	return JSON.parse(child.stdout);
@@ -154,15 +159,54 @@ test("Windows Chrome profiles decrypt v10 cookies with DPAPI keys", (t) => {
 	skipWithoutPython(t);
 	const home = mkdtempSync(join(tmpdir(), "pi-cookie-windows-"));
 	const bin = mkdtempSync(join(tmpdir(), "pi-cookie-bin-"));
+	const argsPath = join(home, "powershell-args");
 	const key = Buffer.alloc(32, 3);
 	createFixture(home, "Default", [
 		["__Secure-1PSID", "", ".google.com", `hex:${encryptWindowsCookie("one", key, "v10", ".google.com")}`, 1],
 		["__Secure-1PSIDTS", "", ".google.com", `hex:${encryptWindowsCookie("two", key, "v10", ".google.com")}`, 2],
 	], { targetPlatform: "win32", windowsKey: key });
-	const env = makeEnvironment(home, bin, { LOCALAPPDATA: join(home, "AppData", "Local"), DPAPI_KEY: key.toString("base64"), DPAPI_PROTECTED: Buffer.from("protected").toString("base64"), TEMP: tmpdir(), TMP: tmpdir() });
-	writeWindowsDpapiCommand(bin);
+	const protectedValue = Buffer.from("protected").toString("base64");
+	const env = makeEnvironment(home, bin, { LOCALAPPDATA: join(home, "AppData", "Local"), DPAPI_KEY: key.toString("base64"), DPAPI_PROTECTED: protectedValue, TEMP: tmpdir(), TMP: tmpdir(), ...writeWindowsDpapiCommand(bin, argsPath) });
 	const result = runCookies(home, env, undefined, "win32");
 	assert.deepEqual(result.result.cookies, { "__Secure-1PSIDTS": "two", "__Secure-1PSID": "one" });
+	const args = readFileSync(argsPath, "utf8").trim().split("\n");
+	assert.equal(args.includes("-EncodedCommand"), true);
+	assert.equal(args.includes(protectedValue), false);
+	rmSync(home, { recursive: true, force: true });
+	rmSync(bin, { recursive: true, force: true });
+});
+
+test("cookie queries keep high Chromium expiry values safe", (t) => {
+	skipWithoutPython(t);
+	const home = mkdtempSync(join(tmpdir(), "pi-cookie-high-expiry-"));
+	const bin = mkdtempSync(join(tmpdir(), "pi-cookie-bin-"));
+	createFixture(home, "Profile 2", [
+		["__Secure-1PSID", "expired", ".google.com", null, 1],
+		["__Secure-1PSID", "future", ".google.com", null, "9223372036854775807"],
+		["__Secure-1PSIDTS", "session", ".google.com", null, 0],
+	]);
+	const env = makeEnvironment(home, bin);
+	Object.assign(env, writePasswordCommand(bin, join(home, "password-count")));
+	const result = runCookieScript(env, "const r = await m.getBrowserCookiesForHosts({ hosts: ['www.google.com'], requestUrl: new URL('https://www.google.com/'), requiredCookies: ['__Secure-1PSID', '__Secure-1PSIDTS'] }); console.log(JSON.stringify({ result: r, diagnostic: m.getLastBrowserCookieDiagnostic() }));");
+	assert.deepEqual(result.result.cookies, { "__Secure-1PSID": "future", "__Secure-1PSIDTS": "session" });
+	rmSync(home, { recursive: true, force: true });
+	rmSync(bin, { recursive: true, force: true });
+});
+
+test("cookie expiry filtering preserves same-second validity", (t) => {
+	skipWithoutPython(t);
+	const home = mkdtempSync(join(tmpdir(), "pi-cookie-subsecond-expiry-"));
+	const bin = mkdtempSync(join(tmpdir(), "pi-cookie-bin-"));
+	const nowMs = 1_700_000_000_500;
+	const sameSecondFutureChromeMicros = (nowMs + 400 + 11644473600000) * 1000;
+	createFixture(home, "Profile 2", [
+		["__Secure-1PSID", "future", ".google.com", null, sameSecondFutureChromeMicros],
+		["__Secure-1PSIDTS", "session", ".google.com", null, 0],
+	]);
+	const env = makeEnvironment(home, bin);
+	Object.assign(env, writePasswordCommand(bin, join(home, "password-count")));
+	const result = runCookieScript(env, `Date.now = () => ${nowMs}; const r = await m.getBrowserCookiesForHosts({ hosts: ['www.google.com'], requestUrl: new URL('https://www.google.com/'), requiredCookies: ['__Secure-1PSID', '__Secure-1PSIDTS'] }); console.log(JSON.stringify({ result: r, diagnostic: m.getLastBrowserCookieDiagnostic() }));`);
+	assert.deepEqual(result.result.cookies, { "__Secure-1PSID": "future", "__Secure-1PSIDTS": "session" });
 	rmSync(home, { recursive: true, force: true });
 	rmSync(bin, { recursive: true, force: true });
 });
