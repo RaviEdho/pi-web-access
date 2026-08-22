@@ -375,8 +375,9 @@ async function readWindowsEncryptionKey(config: BrowserConfig, home: string): Pr
 
 function unprotectWindowsData(protectedData: Buffer): Promise<Buffer | null> {
 	return new Promise((resolve) => {
-		const script = "$data=[Convert]::FromBase64String($args[0]);$clear=[Security.Cryptography.ProtectedData]::Unprotect($data,$null,[Security.Cryptography.DataProtectionScope]::CurrentUser);[Console]::Write([Convert]::ToBase64String($clear))";
-		execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script, protectedData.toString("base64")], { timeout: 5000, maxBuffer: 1024 * 1024 }, (err, stdout) => {
+		const script = "Add-Type -AssemblyName System.Security;$data=[Convert]::FromBase64String($env:PIWA_PROTECTED);$clear=[System.Security.Cryptography.ProtectedData]::Unprotect($data,$null,[System.Security.Cryptography.DataProtectionScope]::CurrentUser);[Console]::Write([Convert]::ToBase64String($clear))";
+		const encoded = Buffer.from(script, "utf16le").toString("base64");
+		execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-EncodedCommand", encoded], { timeout: 5000, maxBuffer: 1024 * 1024, env: { ...process.env, PIWA_PROTECTED: protectedData.toString("base64") } }, (err, stdout) => {
 			if (err) { resolve(null); return; }
 			try {
 				resolve(Buffer.from(stdout.trim(), "base64"));
@@ -509,10 +510,10 @@ async function queryCookieRows(dbPath: string, hosts: string[], names: Iterable<
 	const columns = await readCookieColumns(dbPath);
 	if (columns.status === "failure") return columns;
 	const pathExpr = columns.columns.has("path") ? "path" : "'/' AS path";
-	const expiresExpr = columns.columns.has("expires_utc") ? "expires_utc" : "0 AS expires_utc";
-	const expiryFilter = filterExpired && columns.columns.has("expires_utc") ? ` AND (expires_utc = 0 OR expires_utc > ${chromeExpiryNowMicros()})` : "";
+	const expiresExpr = columns.columns.has("expires_utc") ? chromeExpiryMillisExpr() : "0";
+	const expiryFilter = filterExpired && columns.columns.has("expires_utc") ? ` AND (${expiresExpr} = 0 OR ${expiresExpr} > ${chromeExpiryNowMillis()})` : "";
 	const partitionFilter = filterExpired ? unpartitionedCookieFilter(columns.columns) : "";
-	return runSqliteQuery(dbPath, `SELECT name, value, host_key, ${pathExpr}, ${expiresExpr}, hex(encrypted_value) AS encrypted_value_hex FROM cookies WHERE ${buildCookieWhere(hosts, names ?? undefined)}${expiryFilter}${partitionFilter} ORDER BY length(path) DESC, expires_utc ASC`);
+	return runSqliteQuery(dbPath, `SELECT name, value, host_key, ${pathExpr}, ${expiresExpr} AS expires_utc, hex(encrypted_value) AS encrypted_value_hex FROM cookies WHERE ${buildCookieWhere(hosts, names ?? undefined)}${expiryFilter}${partitionFilter} ORDER BY length(path) DESC, ${expiresExpr} ASC`);
 }
 
 async function readCookieColumns(dbPath: string): Promise<{ status: "success"; columns: Set<string> } | { status: "failure"; failure: SqliteFailure }> {
@@ -521,8 +522,12 @@ async function readCookieColumns(dbPath: string): Promise<{ status: "success"; c
 	return { status: "success", columns: new Set(result.rows.map(row => typeof row.name === "string" ? row.name : "")) };
 }
 
-function chromeExpiryNowMicros(): number {
-	return (Date.now() + 11644473600000) * 1000;
+function chromeExpiryMillisExpr(): string {
+	return "CASE WHEN expires_utc = 0 THEN 0 ELSE CAST(expires_utc / 1000 AS INTEGER) + CASE WHEN expires_utc % 1000 = 0 THEN 0 ELSE 1 END END";
+}
+
+function chromeExpiryNowMillis(): number {
+	return Date.now() + 11644473600000;
 }
 
 function unpartitionedCookieFilter(columns: Set<string>): string {

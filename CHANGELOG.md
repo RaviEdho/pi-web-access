@@ -7,6 +7,9 @@ All notable changes to this project will be documented in this file.
 ### Changed
 - Prefer Codex-backed OpenAI search in `auto` mode when the active Pi model is `openai-codex`; otherwise prefer Exa before OpenAI.
 
+### Fixed
+- Fixed Windows Chromium cookie extraction for large cookie expiry timestamps and DPAPI key unprotect calls. Thanks to [@laixuanthoi](https://github.com/laixuanthoi) for issue #290.
+
 ## [0.24.1] - 2026-08-21
 
 ### Added
