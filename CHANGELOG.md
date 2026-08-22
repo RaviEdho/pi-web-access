@@ -4,11 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.24.2] - 2026-08-22
+
+### Highlights
+- `auto` search now uses Codex-backed OpenAI search when Pi is running a Codex model.
+- Non-Codex sessions still prefer Exa first, so zero-config search keeps its fast keyless path.
+- Gemini Web browser-cookie access is more reliable on Windows Chrome and Edge profiles.
+
 ### Changed
 - Prefer Codex-backed OpenAI search in `auto` mode when the active Pi model is `openai-codex`; otherwise prefer Exa before OpenAI.
 
 ### Fixed
-- Fixed Windows Chromium cookie extraction for large cookie expiry timestamps and DPAPI key unprotect calls. Thanks to [@laixuanthoi](https://github.com/laixuanthoi) for issue #290.
+- Fixed Windows Gemini Web browser-cookie extraction when Chromium cookie expiry values are too large for JavaScript numbers or PowerShell DPAPI key unprotect needs encoded command transport. Thanks to [@laixuanthoi](https://github.com/laixuanthoi) for issue #290.
 
 ## [0.24.1] - 2026-08-21
 
