@@ -15,7 +15,11 @@ function createFixture(home, profile, rows = [], options = {}) {
 	const base = targetPlatform === "darwin"
 		? browser === "Brave"
 			? join(home, "Library", "Application Support", "BraveSoftware", "Brave-Browser")
-			: join(home, "Library", "Application Support", "Google", "Chrome")
+			: browser === "Helium"
+				? join(home, "Library", "Application Support", "net.imput.helium")
+				: browser === "Arc"
+					? join(home, "Library", "Application Support", "Arc", "User Data")
+					: join(home, "Library", "Application Support", "Google", "Chrome")
 		: targetPlatform === "win32"
 			? browser === "Edge"
 				? join(home, "AppData", "Local", "Microsoft", "Edge", "User Data")
@@ -84,8 +88,16 @@ function writeFailThenSucceedPasswordCommand(bin, countPath) {
 	return { COUNT_FILE: countPath };
 }
 
+function writeFailPasswordCommand(bin, countPath, targetPlatform = process.platform) {
+	const command = targetPlatform === "darwin" ? "security" : "secret-tool";
+	const script = `#!/bin/sh\nn=0\n[ -f "$COUNT_FILE" ] && n=$(cat "$COUNT_FILE")\nprintf '%s' $((n + 1)) > "$COUNT_FILE"\nprintf 'sensitive stderr' >&2\nexit 1\n`;
+	writeFileSync(join(bin, command), script);
+	chmodSync(join(bin, command), 0o755);
+	return { COUNT_FILE: countPath };
+}
+
 function runCookies(home, env, options = "{ requiredCookies: ['__Secure-1PSID', '__Secure-1PSIDTS'] }", platformOverride) {
-	return runCookieScript(env, `const r = await m.getGoogleCookies(${options}); console.log(JSON.stringify({ result: r, diagnostic: m.getLastGoogleCookieDiagnostic() }));`, platformOverride);
+	return runCookieScript(env, `const r = await m.getGoogleCookies(${options}); console.log(JSON.stringify({ result: r, diagnostic: m.getLastGoogleCookieDiagnostic(), details: m.getLastGoogleCookieDiagnosticDetails() }));`, platformOverride);
 }
 
 function runCookieScript(env, body, platformOverride) {
@@ -241,7 +253,47 @@ test("required-cookie preflight avoids password invocation for unrelated profile
 	const result = runCookies(home, env);
 	assert.equal(result.result, null);
 	assert.equal(result.diagnostic.includes("required Gemini cookies"), true);
+	assert.equal(result.details.attempts.some((attempt) => attempt.browser === "Chrome" && attempt.profile === "Profile 1" && attempt.status === "missing-required-cookies"), true);
 	assert.equal(existsSync(countPath), false);
+	rmSync(home, { recursive: true, force: true });
+	rmSync(bin, { recursive: true, force: true });
+});
+
+test("diagnostics report browser profile when password-store access fails", (t) => {
+	skipWithoutPython(t);
+	const home = mkdtempSync(join(tmpdir(), "pi-cookie-keychain-failure-"));
+	const bin = mkdtempSync(join(tmpdir(), "pi-cookie-bin-"));
+	createFixture(home, "Default", [
+		["__Secure-1PSID", "one", ".google.com", null, 1],
+		["__Secure-1PSIDTS", "two", ".google.com", null, 2],
+	], { browser: "Helium", targetPlatform: "darwin" });
+	const env = makeEnvironment(home, bin);
+	Object.assign(env, writeFailPasswordCommand(bin, join(home, "password-count"), "darwin"));
+	const result = runCookies(home, env, undefined, "darwin");
+	assert.equal(result.result, null);
+	assert.equal(result.diagnostic, "Could not read Helium cookie encryption password");
+	assert.deepEqual(result.details.attempts[0], { browser: "Helium", profile: "Default", status: "password-read-failed" });
+	assert.doesNotMatch(JSON.stringify(result), /one|two|peanuts|sensitive stderr/);
+	rmSync(home, { recursive: true, force: true });
+	rmSync(bin, { recursive: true, force: true });
+});
+
+test("diagnostics distinguish required cookie decryption failure", (t) => {
+	skipWithoutPython(t);
+	const home = mkdtempSync(join(tmpdir(), "pi-cookie-decrypt-failure-"));
+	const bin = mkdtempSync(join(tmpdir(), "pi-cookie-bin-"));
+	const encrypted = `hex:${Buffer.from("v10bad-ciphertext").toString("hex")}`;
+	createFixture(home, "Profile 2", [
+		["__Secure-1PSID", "", ".google.com", encrypted, 1],
+		["__Secure-1PSIDTS", "", ".google.com", encrypted, 2],
+	]);
+	const env = makeEnvironment(home, bin);
+	Object.assign(env, writePasswordCommand(bin, join(home, "password-count")));
+	const result = runCookies(home, env);
+	assert.equal(result.result, null);
+	assert.match(result.diagnostic, /could not be decrypted/);
+	assert.equal(result.details.attempts.some((attempt) => attempt.browser === "Chrome" && attempt.profile === "Profile 2" && attempt.status === "decryption-failed"), true);
+	assert.doesNotMatch(JSON.stringify(result), /peanuts|bad-ciphertext/);
 	rmSync(home, { recursive: true, force: true });
 	rmSync(bin, { recursive: true, force: true });
 });
@@ -357,6 +409,8 @@ test("unavailable SQLite backends produce actionable sanitized diagnostics", (t)
 	const result = runCookies(home, env);
 	assert.equal(result.result, null);
 	assert.match(result.diagnostic, /SQLite backend unavailable/);
+	assert.equal(result.details.attempts.some((attempt) => attempt.browser === "Chrome" && attempt.profile === "Profile 2" && attempt.status === "sqlite-unavailable"), true);
+	assert.equal(result.details.attempts.some((attempt) => attempt.browser === "Chrome" && attempt.profile === "Profile 2" && attempt.status === "missing-required-cookies"), false);
 	assert.doesNotMatch(result.diagnostic, /one|peanuts|stderr|password/i);
 	rmSync(home, { recursive: true, force: true });
 	rmSync(bin, { recursive: true, force: true });
