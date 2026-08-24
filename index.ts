@@ -384,7 +384,7 @@ function shouldAutoOpenCuratorBrowser(config: WebSearchConfig): boolean {
 }
 
 async function getProviderAvailability(ctx: ExtensionContext): Promise<ProviderAvailability> {
-	const geminiWebAvail = await isGeminiWebAvailable();
+	const geminiWebAvail = await getOptionalGeminiWebAvailability();
 	const geminiApiAvail = isGeminiApiAvailable();
 	const providers = {
 		openai: await isOpenAISearchAvailable(ctx),
@@ -419,6 +419,14 @@ async function getProviderAvailability(ctx: ExtensionContext): Promise<ProviderA
 		all: Object.entries(providers).some(([provider, available]) => provider !== "parallel-mcp" && provider !== "duckduckgo" && provider !== "anysearch" && provider !== "xai" && provider !== "brightdata" && provider !== "serpbase" && provider !== "serper" && provider !== "valyu" && provider !== "gemini" && available) || geminiApiAvail,
 		...providers,
 	};
+}
+
+async function getOptionalGeminiWebAvailability() {
+	try {
+		return await isGeminiWebAvailable();
+	} catch {
+		return null;
+	}
 }
 
 function shouldUseOpenAICodexDefault(ctx?: Pick<ExtensionContext, "model">): boolean {
