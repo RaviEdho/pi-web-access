@@ -146,6 +146,16 @@ test("configured explicit-only SerpBase fails instead of falling back", async ()
 	assert.doesNotMatch(result.content[0].text, /Unexpected fallback fetch/);
 });
 
+test("legacy Gemini Web profile config does not block unrelated configured providers", async () => {
+	const calls = runTool(await createConfig({
+		provider: "tavily",
+		tavilyApiKey: "tavily-test-key",
+		allowBrowserCookies: true,
+		chromeProfile: "Profile 1",
+	}));
+	assert.deepEqual(calls, ["https://api.tavily.com/search"]);
+});
+
 test("malformed config root fails with an explicit object-shape error", async () => {
 	const root = await mkdtemp(join(tmpdir(), "pi-web-access-invalid-config-root-"));
 	const agentDir = join(root, "agent-dir");

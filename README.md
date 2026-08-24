@@ -405,7 +405,10 @@ Config defaults to `~/.pi/web-search.json`, or `web-search.json` under `PI_CODIN
   "image": {
     "enabled": true
   },
-  "chromeProfile": "Profile 2",
+  "browserCookies": {
+    "browser": "helium",
+    "profile": "Profile 2"
+  },
   "allowBrowserCookies": false,
   "searchModel": "gemini-3.6-flash",
   "summaryModel": "anthropic/claude-haiku-4-5",
@@ -478,6 +481,8 @@ A command source is not run while the extension loads or registers tools. Each s
 Set `braveBaseUrl`, `exaBaseUrl`, or `tavilyBaseUrl` to route those providers through a compatible HTTPS API gateway. `BRAVE_BASE_URL`, `EXA_BASE_URL`, and `TAVILY_BASE_URL` are the environment-variable equivalents and take precedence over config. Brave appends `/web/search`, Exa appends `/answer` or `/search`, and Tavily appends `/search`. Defaults remain the providers' official API roots. `exaBaseUrl` applies only to keyed direct API calls; zero-config Exa MCP search continues to use Exa's hosted MCP endpoint. Invalid overrides fail before a request is sent instead of falling back to an official endpoint, and credential headers are removed if a gateway redirects to another origin.
 
 `authFetch` configures named local browser-cookie auth profiles for explicit `fetch_content` calls. A profile can be a host array (`"work": ["docs.company.com"]`) or an object with `hosts`, optional `chromeProfile`, `redirects: "same-origin"`, and `cache: "session" | "off"`.
+
+`browserCookies` selects the Chromium browser preset and profile used for Gemini Web cookies, for example `{ "browserCookies": { "browser": "helium", "profile": "Profile 1" } }`. When `browser` is set, cookie discovery checks only that browser, which avoids unrelated password-store prompts. Supported preset names are `helium`, `chrome`, `brave`, `arc`, `chromium`, and `edge`, subject to platform availability. Omit `browser` to keep automatic browser discovery. `profile` must be a profile directory name. The old top-level `chromeProfile` field is rejected; move it to `browserCookies.profile`. Arbitrary profile paths and `profilePath` are intentionally not supported.
 
 `fetchContent.domainPolicy` is an optional hostname allow/deny policy for `fetch_content` target URLs. It is off when omitted. Each bare hostname matches itself and its subdomains; `deny` wins when a hostname matches both lists. The policy is checked before HTTP(S) target handling and before each redirect followed by this extension's own fetch path. Local file paths and non-HTTP sources are not subject to this policy. It is an additional restriction: the existing SSRF guard still blocks private and internal destinations. Remote extraction services can still perform their own DNS, redirects, and egress after this extension preflights the submitted target URL, so third-party hosted HTTP(S) fallbacks stay disabled unless `fetchRouting.allowRemoteHostedProviders` is enabled for separately isolated provider deployments.
 

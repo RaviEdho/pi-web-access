@@ -409,8 +409,16 @@ async function isResolvedProviderAvailable(provider: ResolvedSearchProvider, opt
 	if (provider === "perplexity") return isPerplexityAvailable();
 	if (provider === "searxng") return isSearXNGAvailable();
 	if (provider === "duckduckgo") return isDuckDuckGoAvailable();
-	if (provider === "gemini") return isGeminiApiAvailable() || !!(await isGeminiWebAvailable());
+	if (provider === "gemini") return isGeminiApiAvailable() || await isGeminiWebOptionallyAvailable();
 	return isExaAvailable();
+}
+
+async function isGeminiWebOptionallyAvailable(): Promise<boolean> {
+	try {
+		return !!(await isGeminiWebAvailable());
+	} catch {
+		return false;
+	}
 }
 
 function providerLabel(provider: ResolvedSearchProvider): string {

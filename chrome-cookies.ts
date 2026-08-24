@@ -3,11 +3,12 @@ import { pbkdf2Sync, createDecipheriv } from "node:crypto";
 import { copyFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir, homedir } from "node:os";
 import { isAbsolute, join, sep } from "node:path";
-import { isBrowserCookieAccessAllowed } from "./gemini-web-config.ts";
+import { isBrowserCookieAccessAllowed, type BrowserCookiePreset } from "./gemini-web-config.ts";
 
 export type CookieMap = Record<string, string>;
 
 interface BrowserConfig {
+	id: BrowserCookiePreset;
 	name: string;
 	baseDir: string;
 	usesLocalAppData?: boolean;
@@ -59,20 +60,20 @@ const ALL_COOKIE_NAMES = new Set([
 ]);
 
 const MACOS_BROWSER_CONFIGS: BrowserConfig[] = [
-	{ name: "Helium", baseDir: "Library/Application Support/net.imput.helium", keychainService: "Helium Storage Key", keychainAccount: "Helium" },
-	{ name: "Chrome", baseDir: "Library/Application Support/Google/Chrome", keychainService: "Chrome Safe Storage", keychainAccount: "Chrome" },
-	{ name: "Brave", baseDir: "Library/Application Support/BraveSoftware/Brave-Browser", keychainService: "Brave Safe Storage", keychainAccount: "Brave" },
-	{ name: "Arc", baseDir: "Library/Application Support/Arc/User Data", keychainService: "Arc Safe Storage", keychainAccount: "Arc" },
+	{ id: "helium", name: "Helium", baseDir: "Library/Application Support/net.imput.helium", keychainService: "Helium Storage Key", keychainAccount: "Helium" },
+	{ id: "chrome", name: "Chrome", baseDir: "Library/Application Support/Google/Chrome", keychainService: "Chrome Safe Storage", keychainAccount: "Chrome" },
+	{ id: "brave", name: "Brave", baseDir: "Library/Application Support/BraveSoftware/Brave-Browser", keychainService: "Brave Safe Storage", keychainAccount: "Brave" },
+	{ id: "arc", name: "Arc", baseDir: "Library/Application Support/Arc/User Data", keychainService: "Arc Safe Storage", keychainAccount: "Arc" },
 ];
 
 const LINUX_BROWSER_CONFIGS: BrowserConfig[] = [
-	{ name: "Chromium", baseDir: ".config/chromium", secretToolApp: "chromium" },
-	{ name: "Chrome", baseDir: ".config/google-chrome", secretToolApp: "chrome" },
+	{ id: "chromium", name: "Chromium", baseDir: ".config/chromium", secretToolApp: "chromium" },
+	{ id: "chrome", name: "Chrome", baseDir: ".config/google-chrome", secretToolApp: "chrome" },
 ];
 
 const WINDOWS_BROWSER_CONFIGS: BrowserConfig[] = [
-	{ name: "Chrome", baseDir: "Google/Chrome/User Data", usesLocalAppData: true },
-	{ name: "Edge", baseDir: "Microsoft/Edge/User Data", usesLocalAppData: true },
+	{ id: "chrome", name: "Chrome", baseDir: "Google/Chrome/User Data", usesLocalAppData: true },
+	{ id: "edge", name: "Edge", baseDir: "Microsoft/Edge/User Data", usesLocalAppData: true },
 ];
 
 const browserPasswordCache = new Map<string, Promise<string | null>>();
@@ -98,10 +99,11 @@ export function getLastBrowserCookieDiagnosticDetails(): BrowserCookieDiagnostic
 }
 
 export async function getGoogleCookies(
-	options?: { profile?: string; requiredCookies?: string[] },
+	options?: { browser?: BrowserCookiePreset; profile?: string; requiredCookies?: string[] },
 ): Promise<{ cookies: CookieMap; warnings: string[] } | null> {
 	return getBrowserCookiesForHosts({
 		hosts: GOOGLE_ORIGINS.map((origin) => new URL(origin).hostname),
+		browser: options?.browser,
 		profile: options?.profile,
 		requiredCookies: options?.requiredCookies,
 		cookieNames: ALL_COOKIE_NAMES,
@@ -110,7 +112,7 @@ export async function getGoogleCookies(
 }
 
 export async function getBrowserCookiesForHosts(
-	options: { hosts: string[]; profile?: string; requiredCookies?: string[]; cookieNames?: Iterable<string>; requiredLabel?: string; requestUrl?: URL },
+	options: { hosts: string[]; browser?: BrowserCookiePreset; profile?: string; requiredCookies?: string[]; cookieNames?: Iterable<string>; requiredLabel?: string; requestUrl?: URL },
 ): Promise<{ cookies: CookieMap; warnings: string[]; cookieHeader?: string } | null> {
 	lastCookieDiagnostic = null;
 	lastCookieDiagnosticDetails = null;
@@ -120,7 +122,12 @@ export async function getBrowserCookiesForHosts(
 	}
 
 	const currentPlatform = process.platform;
-	const configs = currentPlatform === "darwin" ? MACOS_BROWSER_CONFIGS : currentPlatform === "linux" ? LINUX_BROWSER_CONFIGS : currentPlatform === "win32" ? WINDOWS_BROWSER_CONFIGS : [];
+	const platformConfigs = currentPlatform === "darwin" ? MACOS_BROWSER_CONFIGS : currentPlatform === "linux" ? LINUX_BROWSER_CONFIGS : currentPlatform === "win32" ? WINDOWS_BROWSER_CONFIGS : [];
+	const configs = options.browser ? platformConfigs.filter((config) => config.id === options.browser) : platformConfigs;
+	if (options.browser && configs.length === 0) {
+		setCookieDiagnostic(`Browser preset '${options.browser}' is not supported on this platform.`);
+		return null;
+	}
 	if (configs.length === 0) {
 		setCookieDiagnostic("Chromium cookie extraction is unsupported on this platform.");
 		return null;

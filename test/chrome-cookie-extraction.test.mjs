@@ -167,6 +167,30 @@ test("auto-discovery finds a Brave profile on macOS", (t) => {
 	rmSync(bin, { recursive: true, force: true });
 });
 
+test("browser selection checks only the requested preset", (t) => {
+	skipWithoutPython(t);
+	const home = mkdtempSync(join(tmpdir(), "pi-cookie-selected-browser-"));
+	const bin = mkdtempSync(join(tmpdir(), "pi-cookie-bin-"));
+	createFixture(home, "Profile 1", [
+		["__Secure-1PSID", "helium-one", ".google.com", null, 1],
+		["__Secure-1PSIDTS", "helium-two", ".google.com", null, 2],
+	], { browser: "Helium", targetPlatform: "darwin" });
+	createFixture(home, "Profile 1", [
+		["__Secure-1PSID", "chrome-one", ".google.com", null, 1],
+		["__Secure-1PSIDTS", "chrome-two", ".google.com", null, 2],
+	], { browser: "Chrome", targetPlatform: "darwin" });
+	const env = makeEnvironment(home, bin);
+	const argsPath = join(home, "password-args");
+	Object.assign(env, writePasswordCommand(bin, join(home, "password-count"), "darwin", argsPath));
+	const result = runCookies(home, env, "{ browser: 'helium', profile: 'Profile 1', requiredCookies: ['__Secure-1PSID', '__Secure-1PSIDTS'] }", "darwin");
+	assert.deepEqual(result.result.cookies, { "__Secure-1PSIDTS": "helium-two", "__Secure-1PSID": "helium-one" });
+	assert.deepEqual(readFileSync(argsPath, "utf8").trim().split("\n"), [
+		"find-generic-password", "-w", "-a", "Helium", "-s", "Helium Storage Key",
+	]);
+	rmSync(home, { recursive: true, force: true });
+	rmSync(bin, { recursive: true, force: true });
+});
+
 test("Windows Chrome profiles decrypt v10 cookies with DPAPI keys", (t) => {
 	skipWithoutPython(t);
 	const home = mkdtempSync(join(tmpdir(), "pi-cookie-windows-"));

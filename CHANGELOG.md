@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Added deterministic Chromium cookie selection with `browserCookies.browser` and `browserCookies.profile`; arbitrary profile paths remain unsupported. Thanks to [@lmilojevicc](https://github.com/lmilojevicc) for issue #297.
 - Auto-specialize GitHub pull request and issue URLs in `fetch_content`, with `gh`-first metadata, bounded REST fallback, comment-anchor inclusion, truncation markers, and the `githubPrIssue.enabled` opt-out (#294).
 - Added opt-in `searchRouting.useCurrentModel` routing for automatic searches. Official OpenAI GPT Responses models can now fund an isolated Hosted `web_search` request using their exact model, endpoint, credentials, and headers before configured fallbacks. Thanks to [@nyankosama](https://github.com/nyankosama) for PR #293.
 - Added strict Hosted Search response validation: responses must contain a real `web_search_call`; explicit unsupported-tool errors are classified separately for configured fallback routes.
