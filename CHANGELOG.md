@@ -9,6 +9,8 @@ All notable changes to this project will be documented in this file.
 - Added opt-in `searchRouting.useCurrentModel` routing for automatic searches. Official OpenAI GPT Responses models can now fund an isolated Hosted `web_search` request using their exact model, endpoint, credentials, and headers before configured fallbacks. Thanks to [@nyankosama](https://github.com/nyankosama) for PR #293.
 - Added strict Hosted Search response validation: responses must contain a real `web_search_call`; explicit unsupported-tool errors are classified separately for configured fallback routes.
 - Extended current-model Hosted Search routing to official `openai-codex` GPT Responses models through the Codex Responses endpoint.
+- Gemini generate-content calls (search, URL context, PDF/inline-data extraction) can authenticate with Google Application Default Credentials via `geminiAuth: "adc"` instead of a `GEMINI_API_KEY`. Requests go to the Vertex AI endpoint with an OAuth bearer token minted from the ADC file (`authorized_user` refresh token or `service_account` JWT assertion), using `geminiProject`/`geminiLocation` (or `GOOGLE_CLOUD_PROJECT`/`GOOGLE_CLOUD_LOCATION`). Tokens are cached and refreshed from expiry and redacted from errors. YouTube and local video analysis still require a `GEMINI_API_KEY` because they use the Gemini Files API.
+- Thanks to [@smazurov](https://github.com/smazurov) for PR #301.
 
 ### Fixed
 - Improved Gemini Web browser-cookie diagnostics so `/google-account` shows sanitized attempted browser/profile entries and distinguishes missing required cookies, password-store access, and decryption failures. Thanks to [@lmilojevicc](https://github.com/lmilojevicc) for issue #296.
