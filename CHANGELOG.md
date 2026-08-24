@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 - Improved Gemini Web browser-cookie diagnostics so `/google-account` shows sanitized attempted browser/profile entries and distinguishes missing required cookies, password-store access, and decryption failures. Thanks to [@lmilojevicc](https://github.com/lmilojevicc) for issue #296.
+- Made `get_search_content` tolerate bridge defaults when `findText` is supplied, while preserving ordinary pagination. Thanks to [@ZacharyQin](https://github.com/ZacharyQin) for PR #295.
 
 ## [0.24.2] - 2026-08-22
 
