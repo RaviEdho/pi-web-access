@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- Auto-specialize GitHub pull request and issue URLs in `fetch_content`, with `gh`-first metadata, bounded REST fallback, comment-anchor inclusion, truncation markers, and the `githubPrIssue.enabled` opt-out (#294).
+
 ### Fixed
 - Improved Gemini Web browser-cookie diagnostics so `/google-account` shows sanitized attempted browser/profile entries and distinguishes missing required cookies, password-store access, and decryption failures. Thanks to [@lmilojevicc](https://github.com/lmilojevicc) for issue #296.
 
