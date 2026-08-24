@@ -19,6 +19,27 @@ interface BrowserConfig {
 type SqliteRow = Record<string, unknown>;
 type SqliteFailure = "unavailable" | "query";
 
+export type BrowserCookieAttemptStatus =
+	| "missing-database"
+	| "missing-required-cookies"
+	| "password-read-failed"
+	| "decryption-failed"
+	| "sqlite-unavailable"
+	| "sqlite-query-failed"
+	| "unsafe-profile"
+	| "no-host-cookies";
+
+export interface BrowserCookieAttemptDiagnostic {
+	browser: string;
+	profile: string;
+	status: BrowserCookieAttemptStatus;
+}
+
+export interface BrowserCookieDiagnosticDetails {
+	message: string;
+	attempts: BrowserCookieAttemptDiagnostic[];
+}
+
 interface BrowserCookieEntry {
 	name: string;
 	value: string;
@@ -56,6 +77,7 @@ const WINDOWS_BROWSER_CONFIGS: BrowserConfig[] = [
 
 const browserPasswordCache = new Map<string, Promise<string | null>>();
 let lastCookieDiagnostic: string | null = null;
+let lastCookieDiagnosticDetails: BrowserCookieDiagnosticDetails | null = null;
 let sqliteModule: typeof import("node:sqlite") | null = null;
 let sqliteImportAttempted = false;
 
@@ -65,6 +87,14 @@ export function getLastGoogleCookieDiagnostic(): string | null {
 
 export function getLastBrowserCookieDiagnostic(): string | null {
 	return lastCookieDiagnostic;
+}
+
+export function getLastGoogleCookieDiagnosticDetails(): BrowserCookieDiagnosticDetails | null {
+	return lastCookieDiagnosticDetails;
+}
+
+export function getLastBrowserCookieDiagnosticDetails(): BrowserCookieDiagnosticDetails | null {
+	return lastCookieDiagnosticDetails;
 }
 
 export async function getGoogleCookies(
@@ -83,15 +113,16 @@ export async function getBrowserCookiesForHosts(
 	options: { hosts: string[]; profile?: string; requiredCookies?: string[]; cookieNames?: Iterable<string>; requiredLabel?: string; requestUrl?: URL },
 ): Promise<{ cookies: CookieMap; warnings: string[]; cookieHeader?: string } | null> {
 	lastCookieDiagnostic = null;
+	lastCookieDiagnosticDetails = null;
 	if (!isBrowserCookieAccessAllowed()) {
-		lastCookieDiagnostic = "Browser cookie access is disabled; enable allowBrowserCookies to use browser cookies.";
+		setCookieDiagnostic("Browser cookie access is disabled; enable allowBrowserCookies to use browser cookies.");
 		return null;
 	}
 
 	const currentPlatform = process.platform;
 	const configs = currentPlatform === "darwin" ? MACOS_BROWSER_CONFIGS : currentPlatform === "linux" ? LINUX_BROWSER_CONFIGS : currentPlatform === "win32" ? WINDOWS_BROWSER_CONFIGS : [];
 	if (configs.length === 0) {
-		lastCookieDiagnostic = "Chromium cookie extraction is unsupported on this platform.";
+		setCookieDiagnostic("Chromium cookie extraction is unsupported on this platform.");
 		return null;
 	}
 
@@ -99,16 +130,17 @@ export async function getBrowserCookiesForHosts(
 	const rawProfile = typeof options.profile === "string" ? options.profile.trim() : "";
 	const requestedProfile = normalizeProfileName(options.profile);
 	if (rawProfile && !requestedProfile) {
-		lastCookieDiagnostic = "Configured Chromium profile must be a profile directory name, not a path.";
+		setCookieDiagnostic("Configured Chromium profile must be a profile directory name, not a path.");
 		return null;
 	}
 	const requiredCookies = normalizeCookieNames(options.requiredCookies);
 	const cookieNames = normalizeCookieNames(options.cookieNames ? [...options.cookieNames] : undefined);
 	const hosts = normalizeHosts(options.hosts);
 	if (hosts.length === 0) {
-		lastCookieDiagnostic = "No valid cookie hosts were requested.";
+		setCookieDiagnostic("No valid cookie hosts were requested.");
 		return null;
 	}
+	const attempts: BrowserCookieAttemptDiagnostic[] = [];
 	const home = currentPlatform === "win32" ? process.env.USERPROFILE || homedir() : homedir();
 	let sawCookieDatabase = false;
 	let sawRequiredCookies = false;
@@ -116,6 +148,7 @@ export async function getBrowserCookiesForHosts(
 	let sawBackendFailure: SqliteFailure | undefined;
 	let sawUnsafeProfilePath = false;
 	let sawWindowsAppBoundCookie = false;
+	let sawDecryptionFailure = false;
 
 	for (const config of configs) {
 		const profiles = requestedProfile ? [requestedProfile] : listBrowserProfiles(home, config);
@@ -123,11 +156,18 @@ export async function getBrowserCookiesForHosts(
 			const profilePath = resolveProfilePath(home, config, profile);
 			if (profilePath === "outside-root") {
 				sawUnsafeProfilePath = true;
+				recordCookieAttempt(attempts, config, profile, "unsafe-profile");
 				continue;
 			}
-			if (!profilePath) continue;
+			if (!profilePath) {
+				recordCookieAttempt(attempts, config, profile, "missing-database");
+				continue;
+			}
 			const cookiesPath = cookieDatabasePath(profilePath, config);
-			if (!cookiesPath) continue;
+			if (!cookiesPath) {
+				recordCookieAttempt(attempts, config, profile, "missing-database");
+				continue;
+			}
 			sawCookieDatabase = true;
 
 			const tempDir = mkdtempSync(join(tmpdir(), "pi-chrome-cookies-"));
@@ -139,8 +179,15 @@ export async function getBrowserCookiesForHosts(
 
 				if (requiredCookies?.length) {
 					const preflight = await hasCookieNames(tempDb, hosts, requiredCookies);
-					if (preflight.failure) sawBackendFailure = preflight.failure;
-					if (!preflight.present) continue;
+					if (preflight.failure) {
+						sawBackendFailure = preflight.failure;
+						recordCookieAttempt(attempts, config, profile, preflight.failure === "unavailable" ? "sqlite-unavailable" : "sqlite-query-failed");
+						continue;
+					}
+					if (!preflight.present) {
+						recordCookieAttempt(attempts, config, profile, "missing-required-cookies");
+						continue;
+					}
 					sawRequiredCookies = true;
 				}
 
@@ -151,19 +198,25 @@ export async function getBrowserCookiesForHosts(
 					warningSet.add(currentPlatform === "win32"
 						? `Could not read ${config.name} Windows cookie encryption key`
 						: `Could not read ${config.name} cookie encryption password`);
+					recordCookieAttempt(attempts, config, profile, "password-read-failed");
 					continue;
 				}
 				const metaVersion = await readMetaVersion(tempDb);
-				if (metaVersion.failure) sawBackendFailure = metaVersion.failure;
+				if (metaVersion.failure) {
+					sawBackendFailure = metaVersion.failure;
+					recordCookieAttempt(attempts, config, profile, metaVersion.failure === "unavailable" ? "sqlite-unavailable" : "sqlite-query-failed");
+				}
 				if (metaVersion.value === null) continue;
 				const rowsResult = await queryCookieRows(tempDb, hosts, cookieNames ?? null, Boolean(options.requestUrl));
 				if (rowsResult.status === "failure") {
 					sawBackendFailure = rowsResult.failure;
+					recordCookieAttempt(attempts, config, profile, rowsResult.failure === "unavailable" ? "sqlite-unavailable" : "sqlite-query-failed");
 					continue;
 				}
 
 				const entries: BrowserCookieEntry[] = [];
 				const cookies: CookieMap = {};
+				const requiredDecryptFailures = new Set<string>();
 				for (const row of rowsResult.rows) {
 					const name = typeof row.name === "string" ? row.name : "";
 					if (!name) continue;
@@ -174,6 +227,7 @@ export async function getBrowserCookiesForHosts(
 						value = currentPlatform === "win32"
 							? decryptWindowsCookieValue(encrypted, key, metaVersion.value >= 24)
 							: decryptCookieValue(encrypted, key, metaVersion.value >= 24);
+						if (!value && requiredCookies?.includes(name)) requiredDecryptFailures.add(name);
 					}
 					if (!value) continue;
 					const path = typeof row.path === "string" && row.path.startsWith("/") ? row.path : "/";
@@ -183,8 +237,20 @@ export async function getBrowserCookiesForHosts(
 				}
 
 				if (entries.length > 0) sawAnyHostCookie = true;
-				if (requiredCookies?.length && !requiredCookies.every((name) => Boolean(cookies[name]))) continue;
-				if (entries.length === 0) continue;
+				if (requiredCookies?.length && !requiredCookies.every((name) => Boolean(cookies[name]))) {
+					if (requiredCookies.some((name) => !cookies[name] && requiredDecryptFailures.has(name))) {
+						sawDecryptionFailure = true;
+						recordCookieAttempt(attempts, config, profile, "decryption-failed");
+					} else {
+						recordCookieAttempt(attempts, config, profile, "missing-required-cookies");
+					}
+					continue;
+				}
+				if (entries.length === 0) {
+					recordCookieAttempt(attempts, config, profile, requiredDecryptFailures.size > 0 ? "decryption-failed" : "no-host-cookies");
+					if (requiredDecryptFailures.size > 0) sawDecryptionFailure = true;
+					continue;
+				}
 				return {
 					cookies,
 					warnings: [...warningSet],
@@ -197,29 +263,40 @@ export async function getBrowserCookiesForHosts(
 	}
 
 	if (sawBackendFailure === "unavailable") {
-		lastCookieDiagnostic = "SQLite backend unavailable: install sqlite3 or use a runtime with SQLite support.";
+		setCookieDiagnostic("SQLite backend unavailable: install sqlite3 or use a runtime with SQLite support.", attempts);
 	} else if (sawBackendFailure === "query") {
-		lastCookieDiagnostic = "SQLite query failed while reading the copied Chromium cookie database.";
+		setCookieDiagnostic("SQLite query failed while reading the copied Chromium cookie database.", attempts);
 	} else if (sawUnsafeProfilePath) {
-		lastCookieDiagnostic = "Configured Chromium profile must resolve inside the browser profile root.";
+		setCookieDiagnostic("Configured Chromium profile must resolve inside the browser profile root.", attempts);
 	} else if (!sawCookieDatabase) {
-		lastCookieDiagnostic = requestedProfile
+		setCookieDiagnostic(requestedProfile
 			? `Chromium profile '${requestedProfile}' does not contain a cookie database.`
-			: "No detected Chromium profile contains a cookie database.";
+			: "No detected Chromium profile contains a cookie database.", attempts);
 	} else if (requiredCookies?.length && !sawRequiredCookies) {
-		lastCookieDiagnostic = `No detected Chromium profile contains the required ${options.requiredLabel ?? "browser"} cookies.`;
+		setCookieDiagnostic(`No detected Chromium profile contains the required ${options.requiredLabel ?? "browser"} cookies.`, attempts);
 	} else if (sawWindowsAppBoundCookie) {
-		lastCookieDiagnostic = "Windows Chromium v20 app-bound cookies are not supported.";
-	} else if (!sawAnyHostCookie) {
-		lastCookieDiagnostic = options.requestUrl
-			? "No detected Chromium profile contains cookies for the requested URL."
-			: "No detected Chromium profile contains cookies for the requested host.";
+		setCookieDiagnostic("Windows Chromium v20 app-bound cookies are not supported.", attempts);
 	} else if (warningSet.size > 0) {
-		lastCookieDiagnostic = [...warningSet][0];
+		setCookieDiagnostic([...warningSet][0], attempts);
+	} else if (sawDecryptionFailure) {
+		setCookieDiagnostic(`Required ${options.requiredLabel ?? "browser"} cookies could not be decrypted.`, attempts);
+	} else if (!sawAnyHostCookie) {
+		setCookieDiagnostic(options.requestUrl
+			? "No detected Chromium profile contains cookies for the requested URL."
+			: "No detected Chromium profile contains cookies for the requested host.", attempts);
 	} else {
-		lastCookieDiagnostic = "Required Gemini cookies were not available or could not be decrypted.";
+		setCookieDiagnostic("Required Gemini cookies were not available or could not be decrypted.", attempts);
 	}
 	return null;
+}
+
+function setCookieDiagnostic(message: string, attempts: BrowserCookieAttemptDiagnostic[] = []): void {
+	lastCookieDiagnostic = message;
+	lastCookieDiagnosticDetails = { message, attempts };
+}
+
+function recordCookieAttempt(attempts: BrowserCookieAttemptDiagnostic[], config: BrowserConfig, profile: string, status: BrowserCookieAttemptStatus): void {
+	attempts.push({ browser: config.name, profile, status });
 }
 
 function normalizeProfileName(value: string | undefined): string | undefined {
