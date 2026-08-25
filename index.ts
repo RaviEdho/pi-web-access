@@ -607,6 +607,7 @@ interface PendingCurate {
 	summaryModels: Array<{ value: string; label: string }>;
 	defaultSummaryModel: string | null;
 	timeoutSeconds: number;
+	proxy?: string;
 	curatorUrl?: string;
 	onUpdate: ((update: { content: Array<{ type: string; text: string }>; details?: Record<string, unknown> }) => void) | undefined;
 	signal: AbortSignal | undefined;
@@ -1027,12 +1028,12 @@ export default function (pi: ExtensionAPI) {
 	const curateKey = initConfig.shortcuts?.curate || DEFAULT_SHORTCUTS.curate;
 	const activityKey = initConfig.shortcuts?.activity || DEFAULT_SHORTCUTS.activity;
 
-	function startBackgroundFetch(urls: string[]): string | null {
+	function startBackgroundFetch(urls: string[], proxy?: string): string | null {
 		if (urls.length === 0) return null;
 		const fetchId = generateId();
 		const controller = new AbortController();
 		pendingFetches.set(fetchId, controller);
-		fetchAllContent(urls, controller.signal, withRegisteredFetchOptions(undefined, registeredToolNames))
+		runWithProxy(proxy, () => fetchAllContent(urls, controller.signal, withRegisteredFetchOptions(undefined, registeredToolNames, proxy)))
 			.then((fetched) => {
 				if (!sessionActive || !pendingFetches.has(fetchId)) return;
 				const data = {
@@ -1097,6 +1098,7 @@ export default function (pi: ExtensionAPI) {
 		workflow?: SummaryWorkflow;
 		approvedSummary?: string;
 		summaryMeta?: SummaryMeta;
+		proxy?: string;
 	}
 
 	function normalizeSummaryMeta(meta: SummaryMeta | undefined, summaryText: string): SummaryMeta {
@@ -1349,7 +1351,7 @@ export default function (pi: ExtensionAPI) {
 				output += `---\nFull content for ${opts.inlineContent.length} sources available [${fetchId}].`;
 			}
 		} else if (opts.includeContent) {
-			fetchId = startBackgroundFetch(opts.urls);
+			fetchId = startBackgroundFetch(opts.urls, opts.proxy);
 			if (fetchId && !hasApprovedSummary) {
 				output += `---\nContent fetching in background [${fetchId}]. Will notify when ready.`;
 			}
@@ -1464,6 +1466,7 @@ export default function (pi: ExtensionAPI) {
 				},
 				{
 					async onSummarize(selectedQueryIndices, summarizeSignal, model, feedback) {
+						return runWithProxy(pc.proxy, async () => {
 						if (pendingCurates.get(callId) !== pc) throw new Error("Curator session is no longer active.");
 						pc.onUpdate?.({
 							content: [{ type: "text", text: "Generating summary draft..." }],
@@ -1483,6 +1486,7 @@ export default function (pi: ExtensionAPI) {
 							details: { phase: "waiting-for-approval", progress: 1, curatorUrl: pc.curatorUrl, timeoutSeconds: pc.timeoutSeconds, shortcut: curateKey },
 						});
 						return draft;
+						});
 					},
 					onSubmit(payload) {
 						if (pendingCurates.get(callId) !== pc) return;
@@ -1499,6 +1503,7 @@ export default function (pi: ExtensionAPI) {
 							inlineContent: filteredInline.length > 0 ? filteredInline : undefined,
 							curated: true,
 							curatedFrom: pc.searchResults.size,
+							proxy: pc.proxy,
 						};
 						if (!payload.rawResults) {
 							const resolvedSummary = resolveSummaryForSubmit(payload, pc.searchResults);
@@ -1527,6 +1532,7 @@ export default function (pi: ExtensionAPI) {
 								workflow: pc.workflow,
 								approvedSummary: resolvedSummary.approvedSummary,
 								summaryMeta: resolvedSummary.summaryMeta,
+								proxy: pc.proxy,
 							}));
 						} else {
 							const conn = activeCurators.get(callId)?.getConnectionState();
@@ -1555,6 +1561,7 @@ export default function (pi: ExtensionAPI) {
 						}
 					},
 					async onAddSearch(query, provider) {
+						return runWithProxy(pc.proxy, async () => {
 						if (pendingCurates.get(callId) !== pc) throw new Error("Curator session is no longer active.");
 						const requestedProvider = resolveCuratorSearchProvider(provider, pc.searchProvider);
 						const response = await search(query, {
@@ -1569,6 +1576,7 @@ export default function (pi: ExtensionAPI) {
 						if (pendingCurates.get(callId) !== pc) throw new Error("Curator session is no longer active.");
 						if (response.inlineContent) pc.allInlineContent.push(...response.inlineContent);
 						return toCuratorSearchEntries(response);
+						});
 					},
 					onAddSearchResults(entries) {
 						if (pendingCurates.get(callId) !== pc) return;
@@ -1577,8 +1585,10 @@ export default function (pi: ExtensionAPI) {
 						}
 					},
 					async onRewriteQuery(query, rewriteSignal) {
+						return runWithProxy(pc.proxy, async () => {
 						if (pendingCurates.get(callId) !== pc) throw new Error("Curator session is no longer active.");
 						return rewriteSearchQuery(query, pc.summaryContext, rewriteSignal);
+						});
 					},
 				},
 			);
@@ -1807,6 +1817,7 @@ export default function (pi: ExtensionAPI) {
 					summaryModels: summaryModelChoices.summaryModels,
 					defaultSummaryModel: summaryModelChoices.defaultSummaryModel,
 					timeoutSeconds: curatorTimeoutSeconds,
+					proxy: typeof params.proxy === "string" ? params.proxy : undefined,
 					onUpdate: onUpdate as PendingCurate["onUpdate"],
 					signal,
 					abortSearches: () => {
@@ -2017,6 +2028,7 @@ export default function (pi: ExtensionAPI) {
 				workflow: workflow === "auto-summary" ? "auto-summary" : undefined,
 				approvedSummary,
 				summaryMeta,
+				proxy: typeof params.proxy === "string" ? params.proxy : undefined,
 			});
 			});
 		},

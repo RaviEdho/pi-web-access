@@ -265,6 +265,10 @@ export function getActiveProxy(): string | null {
 	return scoped !== undefined ? scoped : loadConfiguredProxy();
 }
 
+export function hasScopedProxyDecision(): boolean {
+	return proxyStorage.getStore() !== undefined;
+}
+
 function noProxyEntryMatches(hostname: string, entry: string): boolean {
 	if (!entry) return false;
 	if (entry === "*") return true;

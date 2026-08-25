@@ -66,3 +66,11 @@ test("README documents manual browser fallback", () => {
 	assert.match(readmeSrc, /Copy it into a browser that can reach the Pi host/);
 	assert.match(readmeSrc, /Remote curator sessions print the URL instead of trying to open a browser by default/);
 });
+
+test("web_search curator callbacks preserve the originating proxy decision", () => {
+	assert.match(indexSrc, /proxy\?: string;/);
+	assert.match(indexSrc, /proxy: typeof params\.proxy === "string" \? params\.proxy : undefined,/);
+	assert.match(indexSrc, /startBackgroundFetch\(opts\.urls, opts\.proxy\)/);
+	assert.match(indexSrc, /runWithProxy\(pc\.proxy, async \(\) => \{/);
+	assert.match(indexSrc, /runWithProxy\(proxy, \(\) => fetchAllContent\(urls, controller\.signal, withRegisteredFetchOptions\(undefined, registeredToolNames, proxy\)\)\)/);
+});
