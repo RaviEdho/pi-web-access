@@ -108,6 +108,14 @@ function validRepo(repo: string): boolean {
 	return /^[A-Za-z0-9._-]{1,100}$/.test(repo) && repo !== "." && repo !== "..";
 }
 
+function errorMessage(err: unknown): string {
+	return err instanceof Error ? err.message : String(err);
+}
+
+function isAbortError(err: unknown): boolean {
+	return errorMessage(err).toLowerCase().includes("abort");
+}
+
 export function parseGitHubIssuePrUrl(url: string): GitHubIssuePrUrlInfo | null {
 	let parsed: URL;
 	try {
@@ -349,8 +357,10 @@ async function restFallback(url: string, info: GitHubIssuePrUrlInfo, options?: E
 			}
 		}
 		return { data: { url, owner: info.owner, repo: info.repo, kind: info.kind, number: info.number, anchor: info.anchor, view, reviewThreads, fallbackNotes: notes } };
-	} catch {
-		return null;
+	} catch (err) {
+		if (signal?.aborted || isAbortError(err)) return { url, title: "", content: "", error: "Aborted" };
+		const message = errorMessage(err);
+		return { url, title: `${info.owner}/${info.repo}#${info.number}`, content: message, error: `GitHub REST fallback failed: ${message}` };
 	}
 }
 

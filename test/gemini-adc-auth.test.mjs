@@ -132,6 +132,48 @@ test("Gemini ADC availability requires geminiAuth adc, project, location, and an
 	assert.equal(avail.apiAvail, true);
 });
 
+test("Gemini ADC config parse errors stay visible", async () => {
+	const root = await mkdtemp(join(tmpdir(), "pi-web-access-gemini-adc-config-"));
+	await writeFile(join(root, "web-search.json"), "not valid JSON", "utf8");
+
+	const child = runChild(`
+		const adc = await import(${JSON.stringify(geminiAdcModuleUrl)});
+		let error = null;
+		try {
+			adc.isGeminiAdcAvailable();
+		} catch (err) {
+			error = err.message;
+		}
+		console.log(JSON.stringify({ error }));
+	`, { HOME: root, USERPROFILE: root, PI_CODING_AGENT_DIR: root, GOOGLE_APPLICATION_CREDENTIALS: join(root, "adc.json") });
+
+	assert.equal(child.status, 0, child.stderr);
+	const { error } = JSON.parse(child.stdout.trim());
+	assert.match(error, /Failed to parse .*web-search\.json/);
+});
+
+test("Gemini ADC credential parse errors include the file path", async () => {
+	const root = await mkdtemp(join(tmpdir(), "pi-web-access-gemini-adc-file-"));
+	const adcPath = join(root, "adc.json");
+	await writeFile(adcPath, "not valid JSON", "utf8");
+
+	const child = runChild(`
+		const adc = await import(${JSON.stringify(geminiAdcModuleUrl)});
+		let error = null;
+		try {
+			await adc.getAdcAccessToken();
+		} catch (err) {
+			error = err.message;
+		}
+		console.log(JSON.stringify({ error }));
+	`, { HOME: root, USERPROFILE: root, PI_CODING_AGENT_DIR: root, GOOGLE_APPLICATION_CREDENTIALS: adcPath });
+
+	assert.equal(child.status, 0, child.stderr);
+	const { error } = JSON.parse(child.stdout.trim());
+	assert.match(error, /Failed to parse Google Application Default Credentials file at /);
+	assert.match(error, /adc\.json/);
+});
+
 test("Gemini ADC never leaks the access token in errors", async () => {	const root = await mkdtemp(join(tmpdir(), "pi-web-access-gemini-adc-redact-"));
 	await writeAdc(root);
 	await writeFile(

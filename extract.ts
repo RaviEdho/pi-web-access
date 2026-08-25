@@ -44,14 +44,10 @@ const DEFAULT_FETCH_PROVIDER_ORDER: FetchProvider[] = ["http", "firecrawl", "jin
 const REMOTE_HOSTED_FETCH_PROVIDERS = new Set<FetchProvider>(["jina", "tinyfish", "search1api", "querit", "kagi", "ollama", "parallel", "parallel-mcp", "brightdata", "gemini"]);
 
 async function extractWithDefuddle(text: string, url: string): Promise<{ title: string; content: string } | null> {
-	try {
-		const { Defuddle } = await import("defuddle/node");
-		const { document } = parseHTML(text);
-		const result = await Defuddle(document as unknown as Document, url, { markdown: true, useAsync: false });
-		return typeof result.content === "string" ? { title: result.title, content: result.content } : null;
-	} catch {
-		return null;
-	}
+	const { Defuddle } = await import("defuddle/node");
+	const { document } = parseHTML(text);
+	const result = await Defuddle(document as unknown as Document, url, { markdown: true, useAsync: false });
+	return typeof result.content === "string" ? { title: result.title, content: result.content } : null;
 }
 
 export { loadSsrfConfig } from "./ssrf-protection.ts";
