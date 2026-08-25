@@ -191,6 +191,33 @@ function loadFetchRouting(): FetchRouting {
 	return { providers, allowRemoteHostedProviders: allowRemoteHostedProvidersValue === true };
 }
 
+const DEFAULT_PUBLIC_TOOL_NAMES = { webSearch: "web_search", fetchContent: "fetch_content" } as const;
+const PUBLIC_TOOL_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
+
+/** Resolve the registered public tool names for guidance text. Lenient on
+ * purpose: malformed config falls back to the defaults, matching what
+ * extension init registers when toolNames fails validation. */
+function loadPublicToolNames(): { webSearch: string; fetchContent: string } {
+	try {
+		if (!existsSync(WEB_SEARCH_CONFIG_PATH)) return { ...DEFAULT_PUBLIC_TOOL_NAMES };
+		const parsed: unknown = JSON.parse(readFileSync(WEB_SEARCH_CONFIG_PATH, "utf-8"));
+		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return { ...DEFAULT_PUBLIC_TOOL_NAMES };
+		const toolNames = (parsed as Record<string, unknown>).toolNames;
+		if (!toolNames || typeof toolNames !== "object" || Array.isArray(toolNames)) return { ...DEFAULT_PUBLIC_TOOL_NAMES };
+		const record = toolNames as Record<string, unknown>;
+		const resolve = (key: "webSearch" | "fetchContent"): string => {
+			const value = record[key];
+			if (typeof value !== "string") return DEFAULT_PUBLIC_TOOL_NAMES[key];
+			const trimmed = value.trim();
+			return PUBLIC_TOOL_NAME_PATTERN.test(trimmed) ? trimmed : DEFAULT_PUBLIC_TOOL_NAMES[key];
+		};
+		const resolved = { webSearch: resolve("webSearch"), fetchContent: resolve("fetchContent") };
+		return resolved.webSearch === resolved.fetchContent ? { ...DEFAULT_PUBLIC_TOOL_NAMES } : resolved;
+	} catch {
+		return { ...DEFAULT_PUBLIC_TOOL_NAMES };
+	}
+}
+
 function abortedResult(url: string): ExtractedContent {
 	return { url, title: "", content: "", error: "Aborted" };
 }
@@ -880,17 +907,19 @@ export async function extractContent(
 	// retrieve the page, so the provider-configuration checklist below would
 	// send users down the wrong path. Point at search instead.
 	if (finalHttpResult?.status === 404 || finalHttpResult?.status === 410) {
+		const toolNames = loadPublicToolNames();
 		return {
 			...finalHttpResult,
 			error: [
 				finalHttpResult.error,
 				"",
 				`The origin server says this page does not exist (HTTP ${finalHttpResult.status}), so extraction providers cannot retrieve it.`,
-				"The page may have moved or been renamed. Use web_search to find the current URL, then retry fetch_content with it.",
+				`The page may have moved or been renamed. Use ${toolNames.webSearch} to find the current URL, then retry ${toolNames.fetchContent} with it.`,
 			].join("\n"),
 		};
 	}
 
+	const { webSearch: searchToolName } = loadPublicToolNames();
 	const guidance = [
 		finalHttpResult?.error ?? "No fetch_content provider returned content",
 		...(firecrawlError ? [`Firecrawl fallback failed: ${firecrawlError}`] : []),
@@ -914,7 +943,7 @@ export async function extractContent(
 		`  • Set brightdataApiKey and brightdataUnlockerZone in ${WEB_SEARCH_CONFIG_PATH} or BRIGHTDATA_API_KEY and BRIGHTDATA_UNLOCKER_ZONE`,
 		`  • Set GEMINI_API_KEY in ${WEB_SEARCH_CONFIG_PATH}`,
 		"  • Sign into gemini.google.com in Chrome",
-		"  • Use web_search to find content about this topic",
+		`  • Use ${searchToolName} to find content about this topic`,
 	].join("\n");
 	return { ...(finalHttpResult ?? { url, title: "", content: "", error: null }), error: guidance };
 }
