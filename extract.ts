@@ -191,6 +191,32 @@ function loadFetchRouting(): FetchRouting {
 	return { providers, allowRemoteHostedProviders: allowRemoteHostedProvidersValue === true };
 }
 
+/** Names of the search/fetch tools the caller has actually registered, so
+ * failure guidance never points at tools that do not exist in the session. */
+export interface RegisteredToolNames {
+	webSearch?: string;
+	fetchContent?: string;
+}
+
+/** Guidance for definitive origin 404/410 responses: no extraction provider
+ * can retrieve a page the origin says is gone, so point at the registered
+ * search/fetch tools (when the caller knows them) instead of provider config. */
+function notFoundGuidance(result: ExtractedContent, toolNames?: RegisteredToolNames): string {
+	const lines = [
+		result.error ?? `HTTP ${result.status}`,
+		"",
+		`The origin server says this page does not exist (HTTP ${result.status}), so extraction providers cannot retrieve it.`,
+	];
+	if (toolNames?.webSearch && toolNames.fetchContent) {
+		lines.push(`The page may have moved or been renamed. Use ${toolNames.webSearch} to find the current URL, then retry ${toolNames.fetchContent} with it.`);
+	} else if (toolNames?.webSearch) {
+		lines.push(`The page may have moved or been renamed. Use ${toolNames.webSearch} to find the current URL.`);
+	} else {
+		lines.push("The page may have moved or been renamed. Find the current URL, then retry the fetch with it.");
+	}
+	return lines.join("\n");
+}
+
 function abortedResult(url: string): ExtractedContent {
 	return { url, title: "", content: "", error: "Aborted" };
 }
@@ -235,6 +261,7 @@ export interface ExtractOptions {
 	mode?: "readable" | "raw" | "answer";
 	answerModel?: string;
 	authFetchProfile?: AuthFetchProfile;
+	toolNames?: RegisteredToolNames;
 	/** Custom DNS resolver used for SSRF validation. Primarily a test seam. */
 	lookup?: Lookup;
 }
@@ -876,6 +903,14 @@ export async function extractContent(
 	const finalHttpResult = httpResult as ExtractedContent | null;
 	if (finalHttpResult && declaredLinks.length > 0) return { ...finalHttpResult, error: null };
 
+	// A definitive 404/410 from the origin means no extraction provider can
+	// retrieve the page, so the provider-configuration checklist below would
+	// send users down the wrong path. Point at search instead.
+	if (finalHttpResult?.status === 404 || finalHttpResult?.status === 410) {
+		return { ...finalHttpResult, error: notFoundGuidance(finalHttpResult, options?.toolNames) };
+	}
+
+	const searchToolName = options?.toolNames?.webSearch;
 	const guidance = [
 		finalHttpResult?.error ?? "No fetch_content provider returned content",
 		...(firecrawlError ? [`Firecrawl fallback failed: ${firecrawlError}`] : []),
@@ -899,7 +934,7 @@ export async function extractContent(
 		`  • Set brightdataApiKey and brightdataUnlockerZone in ${WEB_SEARCH_CONFIG_PATH} or BRIGHTDATA_API_KEY and BRIGHTDATA_UNLOCKER_ZONE`,
 		`  • Set GEMINI_API_KEY in ${WEB_SEARCH_CONFIG_PATH}`,
 		"  • Sign into gemini.google.com in Chrome",
-		"  • Use web_search to find content about this topic",
+		...(searchToolName ? [`  • Use ${searchToolName} to find content about this topic`] : []),
 	].join("\n");
 	return { ...(finalHttpResult ?? { url, title: "", content: "", error: null }), error: guidance };
 }

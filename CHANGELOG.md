@@ -16,6 +16,7 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 - Added Defuddle as a local fallback when Readability and RSC extraction cannot recover useful HTML content. Thanks to [@tobru](https://github.com/tobru) for issue #300.
 - Kept Gemini ADC config parse errors, GitHub PR/issue REST fallback failures, and Defuddle fallback failures visible instead of silently downgrading them.
+- Pointed definitive `fetch_content` 404/410 failures to search guidance instead of provider configuration. Thanks to [@Daniishkhan](https://github.com/Daniishkhan) for PR #308.
 - Improved Gemini Web browser-cookie diagnostics so `/google-account` shows sanitized attempted browser/profile entries and distinguishes missing required cookies, password-store access, and decryption failures. Thanks to [@lmilojevicc](https://github.com/lmilojevicc) for issue #296.
 - Made `get_search_content` tolerate bridge defaults when `findText` is supplied, while preserving ordinary pagination. Thanks to [@ZacharyQin](https://github.com/ZacharyQin) for PR #295.
 
