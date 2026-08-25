@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -201,7 +202,8 @@ export function mapFfmpegError(err: unknown): string {
  * curl. Localhost and NO_PROXY traffic keeps using native fetch untouched.
  */
 
-let perCallProxy: string | null | undefined;
+/** Request-scoped proxy via AsyncLocalStorage — prevents cross-tool-call state leakage. */
+const proxyStorage = new AsyncLocalStorage<string | null>();
 
 /** Validates and normalizes a user-provided proxy URL. Throws on invalid input. */
 export function normalizeProxyUrl(value: unknown, source: string): string | null {
@@ -245,16 +247,21 @@ function loadConfiguredProxy(): string | null {
 }
 
 /**
- * Sets the per-call proxy override. `undefined` falls back to the config-level
- * proxy (`proxy` in web-search.json); a string is validated; "" clears to direct.
+ * Wraps an async function in a request-scoped proxy context. The proxy value
+ * is isolated per `AsyncLocalStorage.run()` — background fetches spawned from
+ * within inherit it, while concurrent tool calls get their own scope.
  */
-export function setActiveProxy(proxy: string | undefined): void {
-	perCallProxy = proxy === undefined ? undefined : normalizeProxyUrl(proxy, "proxy");
+export function runWithProxy<T>(proxy: string | undefined, fn: () => T): T {
+	const normalized = proxy !== undefined ? normalizeProxyUrl(proxy, "proxy") : null;
+	return proxyStorage.run(normalized, fn);
 }
 
-/** The proxy currently in effect: per-call override first, then config default. */
+/** The proxy currently in effect: request-scoped first, then config default. */
 export function getActiveProxy(): string | null {
-	return perCallProxy !== undefined ? perCallProxy : loadConfiguredProxy();
+	const scoped = proxyStorage.getStore();
+	// When inside a runWithProxy context, scoped is defined (may be null for direct).
+	// When outside any context (e.g. module init), scoped is undefined — fall back to config.
+	return scoped !== undefined ? scoped : loadConfiguredProxy();
 }
 
 function noProxyEntryMatches(hostname: string, entry: string): boolean {
@@ -358,7 +365,7 @@ async function fetchViaCurl(url: URL, init: RequestInit, proxyUrl: string): Prom
 	];
 
 	if (method !== "GET" && method !== "HEAD") args.push("-X", method);
-	if (init.redirect !== "manual") args.push("--location", "--max-redirs", "20");
+	if (init.redirect !== "manual" && init.redirect !== "error") args.push("--location", "--max-redirs", "20");
 
 	for (const [name, value] of headers.entries()) {
 		if (value === "") continue;

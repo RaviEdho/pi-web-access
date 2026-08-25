@@ -12,7 +12,7 @@ import { rewriteSearchQuery } from "./query-rewrite.ts";
 import { clearCloneCache } from "./github-extract.ts";
 import { getConfiguredSearchRouting, normalizeSearchProviderSelection, RESOLVED_SEARCH_PROVIDERS, SEARCH_PROVIDERS, search, type AttributedSearchResponse, type SearchProvider, type SearchProviderSelection, type ResolvedSearchProvider } from "./gemini-search.ts";
 import type { SearchResult } from "./perplexity.ts";
-import { formatSeconds, getWebSearchConfigDir, getWebSearchConfigPath, installGlobalProxyFetch, resolveCuratorNetworkConfig, setActiveProxy } from "./utils.ts";
+import { formatSeconds, getWebSearchConfigDir, getWebSearchConfigPath, installGlobalProxyFetch, resolveCuratorNetworkConfig, runWithProxy } from "./utils.ts";
 import {
 	clearResults,
 	deleteResult,
@@ -1716,7 +1716,7 @@ export default function (pi: ExtensionAPI) {
 		}),
 
 		async execute(callId, params, signal, onUpdate, ctx) {
-			setActiveProxy(typeof params.proxy === "string" ? params.proxy : undefined);
+			return runWithProxy(typeof params.proxy === "string" ? params.proxy : undefined, async () => {
 			const rawQueryList: unknown[] = Array.isArray(params.queries)
 				? params.queries
 				: (params.query !== undefined ? [params.query] : []);
@@ -2006,6 +2006,7 @@ export default function (pi: ExtensionAPI) {
 				approvedSummary,
 				summaryMeta,
 			});
+			});
 		},
 
 		renderCall(args, theme) {
@@ -2282,7 +2283,7 @@ export default function (pi: ExtensionAPI) {
 			})),
 		}),
 		async execute(_callId, params, signal, _onUpdate, ctx) {
-			setActiveProxy(typeof params.proxy === "string" ? params.proxy : undefined);
+			return runWithProxy(typeof params.proxy === "string" ? params.proxy : undefined, async () => {
 			const claim = typeof params.claim === "string" ? params.claim.trim() : "";
 			if (!claim) {
 				return { content: [{ type: "text", text: "Error: 'claim' is required." }], details: { error: "Missing claim" } };
@@ -2359,6 +2360,7 @@ export default function (pi: ExtensionAPI) {
 				content: [{ type: "text", text: formatSourceCheckResult(artifact, getSearchContentEnabled ? toolNames.getSearchContent : null) }],
 				details: { responseId: artifact.id, artifact, sourceCount: artifact.sources.length, passageCount: artifact.passages.length },
 			};
+			});
 		},
 	});
 
@@ -2411,7 +2413,7 @@ export default function (pi: ExtensionAPI) {
 				return { content: [{ type: "text", text: `Error: ${error}` }], details: { error } };
 			}
 			const { urlList, options } = normalized;
-			setActiveProxy(options.proxy);
+			return runWithProxy(options.proxy, async () => {
 			const mode = options.mode ?? "readable";
 			if (mode === "answer" && !options.prompt) {
 				return { content: [{ type: "text", text: "Error: mode answer requires prompt." }], details: { error: "mode answer requires prompt" } };
@@ -2570,6 +2572,7 @@ export default function (pi: ExtensionAPI) {
 				content: [{ type: "text", text: output }],
 				details: { urls: urlList, urlCount: urlList.length, successful, totalChars, ...(storedContent ? { responseId } : {}) },
 			};
+			});
 		},
 
 		renderCall(args, theme) {

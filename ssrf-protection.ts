@@ -212,7 +212,9 @@ export async function validateRemoteUrl(rawUrl: string | URL, options: Validatio
 	// While an explicit proxy is active the request is tunnelled through curl and
 	// DNS resolution happens on the proxy side, so local resolution results
 	// (often poisoned on censored networks) must not gate the request.
-	if (getActiveProxy() && !isProxyBypassedUrl(url)) return url;
+	// Only skip when trustEnvProxy is opted-in to prevent caller-supplied proxies
+	// from bypassing the SSRF public-address validation boundary.
+	if (getActiveProxy() && !isProxyBypassedUrl(url) && options.trustEnvProxy === true) return url;
 
 	let addresses: LookupAddress[];
 	try {
