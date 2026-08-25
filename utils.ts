@@ -252,7 +252,8 @@ function loadConfiguredProxy(): string | null {
  * within inherit it, while concurrent tool calls get their own scope.
  */
 export function runWithProxy<T>(proxy: string | undefined, fn: () => T): T {
-	const normalized = proxy !== undefined ? normalizeProxyUrl(proxy, "proxy") : null;
+	if (proxy === undefined) return fn();
+	const normalized = normalizeProxyUrl(proxy, "proxy");
 	return proxyStorage.run(normalized, fn);
 }
 

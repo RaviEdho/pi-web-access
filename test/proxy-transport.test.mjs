@@ -5,10 +5,11 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import initializeExtension from "../index.ts";
-import { installGlobalProxyFetch, runWithProxy } from "../utils.ts";
+import { getActiveProxy, installGlobalProxyFetch, runWithProxy } from "../utils.ts";
 
 const originalFetch = globalThis.fetch;
 const originalPath = process.env.PATH;
+const originalAgentDir = process.env.PI_CODING_AGENT_DIR;
 const originalNoProxy = process.env.NO_PROXY;
 const originalNoProxyLower = process.env.no_proxy;
 
@@ -112,6 +113,21 @@ test("proxy curl redirects strip caller headers across origins", async (t) => {
 		assert.deepEqual(headerValues(calls[1]), []);
 		assert.ok(calls.every((args) => !args.includes("--location")));
 	});
+});
+
+test("omitted proxy uses global config while empty string forces direct access", async (t) => {
+	const dir = await mkdtemp(join(tmpdir(), "pi-proxy-config-test-"));
+	await writeFile(join(dir, "web-search.json"), JSON.stringify({ proxy: "http://global-proxy.example:8080" }));
+	process.env.PI_CODING_AGENT_DIR = dir;
+	t.after(async () => {
+		if (originalAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+		else process.env.PI_CODING_AGENT_DIR = originalAgentDir;
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	assert.equal(runWithProxy(undefined, () => getActiveProxy()), "http://global-proxy.example:8080/");
+	assert.equal(runWithProxy("", () => getActiveProxy()), null);
+	assert.equal(runWithProxy("http://call-proxy.example:8080", () => getActiveProxy()), "http://call-proxy.example:8080/");
 });
 
 test("proxy curl redirects keep caller headers on the same origin", async (t) => {
