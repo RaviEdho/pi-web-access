@@ -43,26 +43,26 @@ function bearerToken(headers: ProviderHeaders): string | undefined {
 async function resolveKimiAuth(ctx?: ExtensionContext): Promise<KimiAuth | undefined> {
 	if (!ctx) return undefined;
 
-	let models: ReturnType<typeof ctx.modelRegistry.getAll>;
-	try {
-		models = ctx.modelRegistry.getAll();
-	} catch {
-		return undefined;
-	}
+	const models = ctx.modelRegistry.getAll();
+	let firstError: unknown;
 
 	for (const provider of KIMI_PROVIDERS) {
 		for (const model of models) {
 			if (model.provider !== provider) continue;
+			let resolved: Awaited<ReturnType<typeof ctx.modelRegistry.getApiKeyAndHeaders>>;
 			try {
-				const resolved = await ctx.modelRegistry.getApiKeyAndHeaders(model);
-				if (!resolved.ok) continue;
-				const headers = resolved.headers ?? {};
-				const apiKey = resolved.apiKey || bearerToken(headers);
-				if (apiKey) return { apiKey, headers };
-			} catch {
+				resolved = await ctx.modelRegistry.getApiKeyAndHeaders(model);
+			} catch (err) {
+				firstError ??= err;
+				continue;
 			}
+			if (!resolved.ok) continue;
+			const headers = resolved.headers ?? {};
+			const apiKey = resolved.apiKey || bearerToken(headers);
+			if (apiKey) return { apiKey, headers };
 		}
 	}
+	if (firstError) throw firstError;
 	return undefined;
 }
 
@@ -163,7 +163,11 @@ function formatAnswer(results: SearchResult[]): string {
 }
 
 export async function isKimiSearchAvailable(ctx?: ExtensionContext): Promise<boolean> {
-	return !!(await resolveKimiAuth(ctx));
+	try {
+		return !!(await resolveKimiAuth(ctx));
+	} catch {
+		return false;
+	}
 }
 
 export async function searchWithKimi(

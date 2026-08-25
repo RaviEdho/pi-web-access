@@ -190,22 +190,8 @@ export function mapFfmpegError(err: unknown): string {
 	return snippet ? `ffmpeg failed: ${snippet}` : "ffmpeg failed";
 }
 
-// ---------------------------------------------------------------------------
-// Proxy transport (curl-backed)
-// ---------------------------------------------------------------------------
-
-/**
- * Node's built-in fetch (undici) ignores HTTP(S)_PROXY env vars, and undici's
- * ProxyAgent fails the TLS handshake against several common HTTP proxies
- * (ERR_SSL_WRONG_VERSION_NUMBER). curl talks to those same proxies reliably,
- * so while a proxy is active every outbound http(s) request is routed through
- * curl. Localhost and NO_PROXY traffic keeps using native fetch untouched.
- */
-
-/** Request-scoped proxy via AsyncLocalStorage — prevents cross-tool-call state leakage. */
 const proxyStorage = new AsyncLocalStorage<string | null>();
 
-/** Validates and normalizes a user-provided proxy URL. Throws on invalid input. */
 export function normalizeProxyUrl(value: unknown, source: string): string | null {
 	if (value === undefined || value === null) return null;
 	if (typeof value !== "string") throw new Error(`${source} must be an http(s) proxy URL string`);
@@ -226,42 +212,38 @@ export function normalizeProxyUrl(value: unknown, source: string): string | null
 	return parsed.toString();
 }
 
-function loadConfiguredProxy(): string | null {
-	let configured: unknown;
-	try {
-		const path = getWebSearchConfigPath();
-		if (existsSync(path)) {
-			const raw: unknown = JSON.parse(readFileSync(path, "utf-8"));
-			if (raw && typeof raw === "object" && !Array.isArray(raw)) configured = (raw as { proxy?: unknown }).proxy;
-		}
-	} catch {
-		return null;
-	}
-	if (configured === undefined) return null;
-	try {
-		return normalizeProxyUrl(configured, `proxy in ${getWebSearchConfigPath()}`);
-	} catch (err) {
-		console.error(`[pi-web-access] ${err instanceof Error ? err.message : String(err)}`);
-		return null;
-	}
+function redactProxyUrl(value: string): string {
+	const parsed = new URL(value);
+	if (parsed.username) parsed.username = "redacted";
+	if (parsed.password) parsed.password = "redacted";
+	return parsed.toString();
 }
 
-/**
- * Wraps an async function in a request-scoped proxy context. The proxy value
- * is isolated per `AsyncLocalStorage.run()` — background fetches spawned from
- * within inherit it, while concurrent tool calls get their own scope.
- */
+function loadConfiguredProxy(): string | null {
+	let configured: unknown;
+	const path = getWebSearchConfigPath();
+	if (existsSync(path)) {
+		let raw: unknown;
+		try {
+			raw = JSON.parse(readFileSync(path, "utf-8"));
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			throw new Error(`Failed to load proxy config from ${path}: ${message}`);
+		}
+		if (raw && typeof raw === "object" && !Array.isArray(raw)) configured = (raw as { proxy?: unknown }).proxy;
+	}
+	if (configured === undefined) return null;
+	return normalizeProxyUrl(configured, `proxy in ${getWebSearchConfigPath()}`);
+}
+
 export function runWithProxy<T>(proxy: string | undefined, fn: () => T): T {
 	if (proxy === undefined) return fn();
 	const normalized = normalizeProxyUrl(proxy, "proxy");
 	return proxyStorage.run(normalized, fn);
 }
 
-/** The proxy currently in effect: request-scoped first, then config default. */
 export function getActiveProxy(): string | null {
 	const scoped = proxyStorage.getStore();
-	// When inside a runWithProxy context, scoped is defined (may be null for direct).
-	// When outside any context (e.g. module init), scoped is undefined — fall back to config.
 	return scoped !== undefined ? scoped : loadConfiguredProxy();
 }
 
@@ -438,15 +420,15 @@ async function fetchViaCurlOnce(url: URL, init: RequestInit, proxyUrl: string): 
 	let stdout: string;
 	try {
 		stdout = await new Promise<string>((resolve, reject) => {
+			if (signal?.aborted) {
+				reject(new DOMException("The operation was aborted.", "AbortError"));
+				return;
+			}
 			const child = spawn("curl", args, { windowsHide: true });
 			let out = "";
 			let stderr = "";
 			const onAbort = () => { try { child.kill(); } catch {} };
 			if (signal) {
-				if (signal.aborted) {
-					reject(new DOMException("The operation was aborted.", "AbortError"));
-					return;
-				}
 				signal.addEventListener("abort", onAbort, { once: true });
 			}
 			child.stdout?.on("data", (chunk: Buffer) => { out += chunk.toString("utf-8"); });
@@ -461,7 +443,7 @@ async function fetchViaCurlOnce(url: URL, init: RequestInit, proxyUrl: string): 
 				signal?.removeEventListener("abort", onAbort);
 				if (signal?.aborted) return reject(new DOMException("The operation was aborted.", "AbortError"));
 				if (code !== 0 && !out.trim()) {
-					return reject(new CurlTransportError(`curl exited with code ${code ?? "unknown"} via ${proxyUrl}${stderr.trim() ? `: ${stderr.trim()}` : ""}`));
+					return reject(new CurlTransportError(`curl exited with code ${code ?? "unknown"} via ${redactProxyUrl(proxyUrl)}${stderr.trim() ? `: ${stderr.trim()}` : ""}`));
 				}
 				resolve(out);
 			});
@@ -484,7 +466,7 @@ async function fetchViaCurlOnce(url: URL, init: RequestInit, proxyUrl: string): 
 
 	const { status, statusText, headers: responseHeaders } = parseHeaderDump(dump);
 	if (status === 0) {
-		throw new Error(`Proxy fetch to ${url.toString()} via ${proxyUrl} returned no HTTP status`);
+		throw new Error(`Proxy fetch to ${url.toString()} via ${redactProxyUrl(proxyUrl)} returned no HTTP status`);
 	}
 
 	let finalUrl = url.toString();

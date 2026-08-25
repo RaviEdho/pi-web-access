@@ -142,6 +142,47 @@ test("omitted proxy uses global config while empty string forces direct access",
 	assert.equal(runWithProxy("http://call-proxy.example:8080", () => getActiveProxy()), "http://call-proxy.example:8080/");
 });
 
+test("invalid configured proxy fails closed instead of direct fetching", async (t) => {
+	const dir = await mkdtemp(join(tmpdir(), "pi-proxy-invalid-config-test-"));
+	await writeFile(join(dir, "web-search.json"), JSON.stringify({ proxy: "socks5://proxy.example:1080" }));
+	process.env.PI_CODING_AGENT_DIR = dir;
+	t.after(async () => {
+		if (originalAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+		else process.env.PI_CODING_AGENT_DIR = originalAgentDir;
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	assert.throws(() => getActiveProxy(), /proxy.*must use the http:\/\/ or https:\/\/ scheme/);
+});
+
+test("proxy transport does not spawn curl for pre-aborted requests", async (t) => {
+	await withFakeCurl(t, {
+		"https://origin.example/abort": { status: 200, statusText: "OK", body: "late" },
+	}, async (logPath) => {
+		const controller = new AbortController();
+		controller.abort();
+
+		await assert.rejects(
+			runWithProxy("http://proxy.example:8080", () => fetch("https://origin.example/abort", { signal: controller.signal })),
+			/error.*abort/i,
+		);
+		await assert.rejects(readFile(logPath, "utf8"), /ENOENT/);
+	});
+});
+
+test("proxy transport errors redact proxy credentials", async (t) => {
+	await withFakeCurl(t, {}, async () => {
+		await assert.rejects(
+			runWithProxy("http://user:secret@proxy.example:8080", () => fetch("https://origin.example/missing")),
+			(error) => {
+				assert.match(error.message, /http:\/\/redacted:redacted@proxy\.example:8080\//);
+				assert.doesNotMatch(error.message, /user:secret/);
+				return true;
+			},
+		);
+	});
+});
+
 test("proxy curl redirects keep caller headers on the same origin", async (t) => {
 	await withFakeCurl(t, {
 		"https://origin.example/start": { status: 302, statusText: "Found", location: "/final" },

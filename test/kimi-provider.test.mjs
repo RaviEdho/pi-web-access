@@ -143,6 +143,60 @@ test("Kimi without model-registry auth fails before making a request", async () 
 	assert.equal(requests, 0);
 });
 
+test("Kimi preserves model-registry credential failures", async () => {
+	const { context } = registryContext({
+		models: [{ provider: "kimi-coding", id: "broken-refresh" }],
+		auth: async () => { throw new Error("credential refresh failed"); },
+	});
+	let requests = 0;
+	await withFetch(async () => {
+		requests++;
+		throw new Error("must not reach the network");
+	}, async () => {
+		await assert.rejects(
+			() => searchWithKimi("broken auth", {}, context),
+			/credential refresh failed/,
+		);
+	});
+	assert.equal(requests, 0);
+});
+
+test("Kimi tries later registry models after an earlier credential failure", async () => {
+	const { context, selected } = registryContext({
+		models: [
+			{ provider: "kimi-coding", id: "broken-refresh" },
+			{ provider: "kimi-coding", id: "usable-refresh" },
+		],
+		auth: async (model) => {
+			if (model.id === "broken-refresh") throw new Error("credential refresh failed");
+			return { ok: true, apiKey: "kimi-later-token", headers: {} };
+		},
+	});
+	let authorization;
+	const result = await withFetch(async (_url, init) => {
+		authorization = new Headers(init.headers).get("authorization");
+		return new Response(JSON.stringify({
+			search_results: [{ title: "Later auth", url: "https://example.com/later", snippet: "ok" }],
+		}), { status: 200 });
+	}, () => searchWithKimi("later auth", {}, context));
+
+	assert.deepEqual(selected, [
+		{ provider: "kimi-coding", id: "broken-refresh" },
+		{ provider: "kimi-coding", id: "usable-refresh" },
+	]);
+	assert.equal(authorization, "Bearer kimi-later-token");
+	assert.equal(result.results[0]?.url, "https://example.com/later");
+});
+
+test("Kimi availability treats registry credential failures as unavailable", async () => {
+	const { context } = registryContext({
+		models: [{ provider: "kimi-coding", id: "broken-refresh" }],
+		auth: async () => { throw new Error("credential refresh failed"); },
+	});
+
+	assert.equal(await isKimiSearchAvailable(context), false);
+});
+
 test("Kimi API errors redact the model-registry credential", async () => {
 	const secret = "kimi-oauth-secret";
 	const { context } = registryContext({ auth: { ok: true, apiKey: secret, headers: {} } });

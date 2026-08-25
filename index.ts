@@ -6,7 +6,7 @@ import type { ExtractedContent, ExtractOptions } from "./extract.ts";
 import { normalizeFetchContentParams } from "./fetch-params.ts";
 import { normalizeGetSearchContentParams } from "./get-search-content-params.ts";
 import { resolveAuthFetchProfile, type AuthFetchProfile } from "./auth-fetch.ts";
-import { findContent, type FindMode } from "./content-find.ts";
+import { findContent } from "./content-find.ts";
 import { answerFromPage } from "./page-query.ts";
 import { rewriteSearchQuery } from "./query-rewrite.ts";
 import { clearCloneCache } from "./github-extract.ts";
@@ -2758,8 +2758,8 @@ export default function (pi: ExtensionAPI) {
 			findMode: Type.Optional(StringEnum(["exact", "case-insensitive", "fuzzy"], { description: "Matching mode for findText (default: case-insensitive). Requires findText." })),
 		}),
 
-		async execute(_toolCallId, params): Promise<AgentToolResult<Record<string, unknown>>> {
-			params = normalizeGetSearchContentParams(params);
+		async execute(_toolCallId, rawParams): Promise<AgentToolResult<Record<string, unknown>>> {
+			const params = normalizeGetSearchContentParams(rawParams);
 			if (params.findMode !== undefined && params.findText === undefined) {
 				return {
 					content: [{ type: "text", text: `findMode ${formatInputValue(params.findMode)} requires findText; provide findText or omit findMode.` }],
@@ -2785,7 +2785,7 @@ export default function (pi: ExtensionAPI) {
 				const serialized = JSON.stringify(artifact, null, 2);
 				if (params.findText !== undefined) {
 					try {
-						const found = findContent(serialized, normalizeFindQueries(params.findText), (params.findMode ?? "case-insensitive") as FindMode);
+						const found = findContent(serialized, normalizeFindQueries(params.findText), params.findMode ?? "case-insensitive");
 						const { text, ...findDetails } = found;
 						return {
 							content: [{ type: "text", text }],
@@ -2867,7 +2867,7 @@ export default function (pi: ExtensionAPI) {
 				const fullResults = formatFullResults(queryData);
 				if (params.findText !== undefined) {
 					try {
-						const found = findContent(fullResults, normalizeFindQueries(params.findText), (params.findMode ?? "case-insensitive") as FindMode);
+						const found = findContent(fullResults, normalizeFindQueries(params.findText), params.findMode ?? "case-insensitive");
 						const { text, ...findDetails } = found;
 						return {
 							content: [{ type: "text", text }],
@@ -2929,7 +2929,7 @@ export default function (pi: ExtensionAPI) {
 
 				if (params.findText !== undefined) {
 					try {
-						const found = findContent(urlData.content, normalizeFindQueries(params.findText), (params.findMode ?? "case-insensitive") as FindMode);
+						const found = findContent(urlData.content, normalizeFindQueries(params.findText), params.findMode ?? "case-insensitive");
 						const { text, ...findDetails } = found;
 						return {
 							content: [{ type: "text", text: `# ${urlData.title || urlData.url}\n\n${text}` }],

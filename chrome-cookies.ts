@@ -94,10 +94,6 @@ export function getLastGoogleCookieDiagnosticDetails(): BrowserCookieDiagnosticD
 	return lastCookieDiagnosticDetails;
 }
 
-export function getLastBrowserCookieDiagnosticDetails(): BrowserCookieDiagnosticDetails | null {
-	return lastCookieDiagnosticDetails;
-}
-
 export async function getGoogleCookies(
 	options?: { browser?: BrowserCookiePreset; profile?: string; requiredCookies?: string[] },
 ): Promise<{ cookies: CookieMap; warnings: string[] } | null> {
