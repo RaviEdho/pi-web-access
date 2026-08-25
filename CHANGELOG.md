@@ -4,19 +4,28 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-08-25
+
+### Highlights
+- `web_search`, `source_check`, and `fetch_content` can now use an explicit HTTP(S) proxy for restricted networks.
+- `fetch_content` now gives useful GitHub PR and issue summaries, including comments, review threads, anchors, and truncation markers.
+- Gemini users can choose browser cookie profiles more predictably and can use Google Application Default Credentials for Gemini generate-content calls.
+- Kimi Code Plan users can run explicit Kimi web searches through Pi's `kimi-coding` login.
+- HTML extraction, missing-page guidance, and stored-content lookup are more reliable.
+
 ### Added
-- **Proxy transport (curl-backed):** `web_search`, `source_check`, and `fetch_content` now accept an optional `proxy` parameter (e.g. `"http://host:port"`). When a proxy is active, all outbound HTTP(S) requests — search API calls, page fetches, and content extractions — are routed through `curl` automatically. This works around Node's built-in fetch ignoring `HTTP(S)_PROXY` env vars and undici `ProxyAgent` failing against several common HTTP proxies (ERR_SSL_WRONG_VERSION_NUMBER). Localhost and `NO_PROXY` hosts are never proxied. Configuration-level proxy can also be set via `"proxy"` in `~/.pi/web-search.json`. Thanks to [@mystery4f](https://github.com/mystery4f) for PR #307.
+- Added an optional `proxy` parameter to `web_search`, `source_check`, and `fetch_content`. When set, search APIs, page fetches, and content extraction use `curl` through that proxy. Localhost and `NO_PROXY` hosts still bypass the proxy. A default proxy can also be set with `"proxy"` in `~/.pi/web-search.json`. Thanks to [@mystery4f](https://github.com/mystery4f) for PR #307.
 - Added deterministic Chromium cookie selection with `browserCookies.browser` and `browserCookies.profile`; arbitrary profile paths remain unsupported. Thanks to [@lmilojevicc](https://github.com/lmilojevicc) for issue #297.
-- Auto-specialize GitHub pull request and issue URLs in `fetch_content`, with `gh`-first metadata, bounded REST fallback, comment-anchor inclusion, truncation markers, and the `githubPrIssue.enabled` opt-out (#294).
+- Added GitHub PR and issue specialization in `fetch_content`, with `gh`-first metadata, bounded REST fallback, comment anchors, review threads, truncation markers, and the `githubPrIssue.enabled` opt-out (#294).
 - Added explicit-only Kimi Code Plan search using Pi's refreshed `kimi-coding` OAuth credentials. Thanks to [@lushangkan](https://github.com/lushangkan) for PR #275.
-- Added opt-in `searchRouting.useCurrentModel` routing for automatic searches. Official OpenAI GPT Responses models can now fund an isolated Hosted `web_search` request using their exact model, endpoint, credentials, and headers before configured fallbacks. Thanks to [@nyankosama](https://github.com/nyankosama) for PR #293.
-- Added strict Hosted Search response validation: responses must contain a real `web_search_call`; explicit unsupported-tool errors are classified separately for configured fallback routes.
-- Extended current-model Hosted Search routing to official `openai-codex` GPT Responses models through the Codex Responses endpoint.
-- Gemini generate-content calls (search, URL context, PDF/inline-data extraction) can authenticate with Google Application Default Credentials via `geminiAuth: "adc"` instead of a `GEMINI_API_KEY`. Requests go to the Vertex AI endpoint with an OAuth bearer token minted from the ADC file (`authorized_user` refresh token or `service_account` JWT assertion), using `geminiProject`/`geminiLocation` (or `GOOGLE_CLOUD_PROJECT`/`GOOGLE_CLOUD_LOCATION`). Tokens are cached and refreshed from expiry and redacted from errors. YouTube and local video analysis still require a `GEMINI_API_KEY` because they use the Gemini Files API. Thanks to [@smazurov](https://github.com/smazurov) for PR #301.
+- Added opt-in `searchRouting.useCurrentModel` routing for automatic searches. Official OpenAI GPT Responses models can now fund Hosted Search with their current endpoint, credentials, and headers before configured fallbacks. Thanks to [@nyankosama](https://github.com/nyankosama) for PR #293.
+- Added strict Hosted Search response validation and better fallback classification for unsupported Hosted Search tools.
+- Added current-model Hosted Search routing for official `openai-codex` GPT Responses models through the Codex Responses endpoint.
+- Added Google Application Default Credentials support for Gemini generate-content calls with `geminiAuth: "adc"`. This covers Gemini search, URL context, PDF, and inline-data extraction through Vertex AI. YouTube and local video analysis still require `GEMINI_API_KEY` because they use the Gemini Files API. Thanks to [@smazurov](https://github.com/smazurov) for PR #301.
 
 ### Fixed
 - Added Defuddle as a local fallback when Readability and RSC extraction cannot recover useful HTML content. Thanks to [@tobru](https://github.com/tobru) for issue #300.
-- Kept Gemini ADC config parse errors, GitHub PR/issue REST fallback failures, and Defuddle fallback failures visible instead of silently downgrading them.
+- Kept Gemini ADC config and credential errors, GitHub PR/issue REST fallback failures, and Defuddle fallback failures visible instead of silently downgrading them.
 - Pointed definitive `fetch_content` 404/410 failures to search guidance instead of provider configuration. Thanks to [@Daniishkhan](https://github.com/Daniishkhan) for PR #308.
 - Improved Gemini Web browser-cookie diagnostics so `/google-account` shows sanitized attempted browser/profile entries and distinguishes missing required cookies, password-store access, and decryption failures. Thanks to [@lmilojevicc](https://github.com/lmilojevicc) for issue #296.
 - Made `get_search_content` tolerate bridge defaults when `findText` is supplied, while preserving ordinary pagination. Thanks to [@ZacharyQin](https://github.com/ZacharyQin) for PR #295.
