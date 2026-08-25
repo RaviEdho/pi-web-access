@@ -85,6 +85,18 @@ function registerSourceCheck() {
 	return tools.find((tool) => tool.name === "source_check");
 }
 
+function registerFetchContent() {
+	const tools = [];
+	initializeExtension({
+		registerTool(tool) { tools.push(tool); },
+		registerCommand() {},
+		registerShortcut() {},
+		on() {},
+		appendEntry() {},
+	});
+	return tools.find((tool) => tool.name === "fetch_content");
+}
+
 function proxyArg(args) {
 	const index = args.indexOf("-x");
 	return index === -1 ? undefined : args[index + 1];
@@ -191,6 +203,28 @@ test("source_check fetchContent uses the explicit proxy for result pages", async
 		assert.ok(apiCall);
 		assert.ok(pageCall);
 		assert.ok(["http://call-proxy.example:8080", "http://call-proxy.example:8080/"].includes(proxyArg(apiCall)));
+		assert.ok(["http://call-proxy.example:8080", "http://call-proxy.example:8080/"].includes(proxyArg(pageCall)));
+	});
+});
+
+test("fetch_content passes the explicit proxy through queued extraction", async (t) => {
+	await withFakeCurl(t, {
+		"https://example.com/page": {
+			status: 200,
+			statusText: "OK",
+			body: "<html><title>Proxy page</title><body>Fetched through the requested proxy.</body></html>",
+		},
+	}, async (logPath) => {
+		const tool = registerFetchContent();
+		assert.ok(tool);
+		const response = await tool.execute("call", {
+			url: "https://example.com/page",
+			proxy: "http://call-proxy.example:8080",
+		});
+
+		assert.equal(response.details.successful, 1);
+		const pageCall = (await readCurlCalls(logPath)).find((args) => args.at(-1) === "https://example.com/page");
+		assert.ok(pageCall);
 		assert.ok(["http://call-proxy.example:8080", "http://call-proxy.example:8080/"].includes(proxyArg(pageCall)));
 	});
 });

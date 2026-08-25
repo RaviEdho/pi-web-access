@@ -2482,7 +2482,7 @@ export default function (pi: ExtensionAPI) {
 					return { ...rest, ...(authFetchProfile ? { authFetchProfile } : {}) };
 				})()
 				: { ...extractionOptions, ...(authFetchProfile ? { authFetchProfile } : {}) };
-			const fetchResults = await fetchAllContent(urlList, signal, withRegisteredFetchOptions(fetchOptions, registeredToolNames));
+			const fetchResults = await fetchAllContent(urlList, signal, withRegisteredFetchOptions(fetchOptions, registeredToolNames, options.proxy));
 			const presentedResults = mode === "answer"
 				? await Promise.all(fetchResults.map(async result => {
 					if (result.error) return result;
