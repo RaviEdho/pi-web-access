@@ -93,6 +93,18 @@ async function fetchAllContent(
 	return extractModule.fetchAllContent(urls, signal, options);
 }
 
+function withRegisteredFetchOptions(
+	options: ExtractOptions | undefined,
+	toolNames: ExtractOptions["toolNames"],
+	proxy?: string,
+): ExtractOptions {
+	return {
+		...(options ?? {}),
+		toolNames,
+		...(proxy !== undefined ? { proxy } : {}),
+	};
+}
+
 function isAbortError(err: unknown): boolean {
 	return (err instanceof Error ? err.message : String(err)).toLowerCase().includes("abort");
 }
@@ -1020,7 +1032,7 @@ export default function (pi: ExtensionAPI) {
 		const fetchId = generateId();
 		const controller = new AbortController();
 		pendingFetches.set(fetchId, controller);
-		fetchAllContent(urls, controller.signal, { toolNames: registeredToolNames })
+		fetchAllContent(urls, controller.signal, withRegisteredFetchOptions(undefined, registeredToolNames))
 			.then((fetched) => {
 				if (!sessionActive || !pendingFetches.has(fetchId)) return;
 				const data = {
@@ -2333,7 +2345,7 @@ export default function (pi: ExtensionAPI) {
 			if (params.fetchContent && results.length > 0) {
 				const urls = results.slice(0, 5).map((result) => result.url);
 				try {
-					fetched = await fetchAllContent(urls, signal, { toolNames: registeredToolNames });
+					fetched = await fetchAllContent(urls, signal, withRegisteredFetchOptions(undefined, registeredToolNames, typeof params.proxy === "string" ? params.proxy : undefined));
 				} catch (err) {
 					if (signal?.aborted || isAbortError(err)) throw err;
 					fetched = urls.map((url) => ({ url, title: "", content: "", error: err instanceof Error ? err.message : String(err) }));
@@ -2458,7 +2470,7 @@ export default function (pi: ExtensionAPI) {
 					return { ...rest, ...(authFetchProfile ? { authFetchProfile } : {}) };
 				})()
 				: { ...extractionOptions, ...(authFetchProfile ? { authFetchProfile } : {}) };
-			const fetchResults = await fetchAllContent(urlList, signal, { ...fetchOptions, toolNames: registeredToolNames });
+			const fetchResults = await fetchAllContent(urlList, signal, withRegisteredFetchOptions(fetchOptions, registeredToolNames));
 			const presentedResults = mode === "answer"
 				? await Promise.all(fetchResults.map(async result => {
 					if (result.error) return result;

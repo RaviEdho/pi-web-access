@@ -351,6 +351,43 @@ function parseHeaderDump(dump: string): { status: number; statusText: string; he
 class CurlTransportError extends Error {}
 
 async function fetchViaCurl(url: URL, init: RequestInit, proxyUrl: string): Promise<Response> {
+	let current = url;
+	let currentInit = init;
+	for (let redirects = 0; ; redirects++) {
+		const response = await fetchViaCurlOnce(current, currentInit, proxyUrl);
+		const location = response.headers.get("location");
+		if (!location || ![301, 302, 303, 307, 308].includes(response.status)) {
+			if (redirects > 0) Object.defineProperty(response, "redirected", { value: true, configurable: true });
+			return response;
+		}
+		if (currentInit.redirect === "manual") return response;
+		if (currentInit.redirect === "error") throw new TypeError(`Proxy fetch redirect blocked from ${current.toString()}`);
+		if (redirects === 20) throw new Error(`Too many proxy redirects from ${url.toString()}`);
+
+		const next = new URL(location, current);
+		if (next.protocol !== "http:" && next.protocol !== "https:") throw new Error(`Proxy redirect from ${current.origin} must use HTTP(S)`);
+
+		let headers = new Headers(currentInit.headers);
+		let nextInit: RequestInit;
+		const method = currentInit.method?.toUpperCase() ?? "GET";
+		if (((response.status === 301 || response.status === 302) && method === "POST") || (response.status === 303 && method !== "GET" && method !== "HEAD")) {
+			for (const name of ["Content-Encoding", "Content-Language", "Content-Location", "Content-Type"]) headers.delete(name);
+			const { body: _body, ...withoutBody } = currentInit;
+			nextInit = { ...withoutBody, method: "GET", headers };
+		} else {
+			nextInit = { ...currentInit, headers };
+		}
+
+		if (next.origin !== current.origin) {
+			headers = new Headers();
+			nextInit = { ...nextInit, headers };
+		}
+		current = next;
+		currentInit = nextInit;
+	}
+}
+
+async function fetchViaCurlOnce(url: URL, init: RequestInit, proxyUrl: string): Promise<Response> {
 	const method = (init.method ?? "GET").toUpperCase();
 	const headers = new Headers(init.headers);
 
@@ -371,7 +408,6 @@ async function fetchViaCurl(url: URL, init: RequestInit, proxyUrl: string): Prom
 	];
 
 	if (method !== "GET" && method !== "HEAD") args.push("-X", method);
-	if (init.redirect !== "manual" && init.redirect !== "error") args.push("--location", "--max-redirs", "20");
 
 	for (const [name, value] of headers.entries()) {
 		if (value === "") continue;
