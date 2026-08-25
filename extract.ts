@@ -876,6 +876,21 @@ export async function extractContent(
 	const finalHttpResult = httpResult as ExtractedContent | null;
 	if (finalHttpResult && declaredLinks.length > 0) return { ...finalHttpResult, error: null };
 
+	// A definitive 404/410 from the origin means no extraction provider can
+	// retrieve the page, so the provider-configuration checklist below would
+	// send users down the wrong path. Point at search instead.
+	if (finalHttpResult?.status === 404 || finalHttpResult?.status === 410) {
+		return {
+			...finalHttpResult,
+			error: [
+				finalHttpResult.error,
+				"",
+				`The origin server says this page does not exist (HTTP ${finalHttpResult.status}), so extraction providers cannot retrieve it.`,
+				"The page may have moved or been renamed. Use web_search to find the current URL, then retry fetch_content with it.",
+			].join("\n"),
+		};
+	}
+
 	const guidance = [
 		finalHttpResult?.error ?? "No fetch_content provider returned content",
 		...(firecrawlError ? [`Firecrawl fallback failed: ${firecrawlError}`] : []),
