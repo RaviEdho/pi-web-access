@@ -12,7 +12,7 @@ import { rewriteSearchQuery } from "./query-rewrite.ts";
 import { clearCloneCache } from "./github-extract.ts";
 import { getConfiguredSearchRouting, normalizeSearchProviderSelection, RESOLVED_SEARCH_PROVIDERS, SEARCH_PROVIDERS, search, type AttributedSearchResponse, type SearchProvider, type SearchProviderSelection, type ResolvedSearchProvider } from "./gemini-search.ts";
 import type { SearchResult } from "./perplexity.ts";
-import { formatSeconds, getWebSearchConfigDir, getWebSearchConfigPath, resolveCuratorNetworkConfig } from "./utils.ts";
+import { formatSeconds, getWebSearchConfigDir, getWebSearchConfigPath, installGlobalProxyFetch, resolveCuratorNetworkConfig, setActiveProxy } from "./utils.ts";
 import {
 	clearResults,
 	deleteResult,
@@ -989,6 +989,7 @@ function handleSessionChange(ctx: ExtensionContext): void {
 
 export default function (pi: ExtensionAPI) {
 	const initConfig = loadConfigForExtensionInit();
+	installGlobalProxyFetch();
 	const toolNames = resolveToolNames(initConfig);
 	const webSearchEnabled = isToolEnabled(initConfig, "webSearch");
 	const sourceCheckEnabled = isToolEnabled(initConfig, "sourceCheck");
@@ -1709,9 +1710,13 @@ export default function (pi: ExtensionAPI) {
 					description: "Search workflow mode: none = no curator, summary-review = open curator with auto summary draft (default), auto-summary = generate summary without opening curator",
 				}),
 			),
+			proxy: Type.Optional(Type.String({
+				description: "http(s) proxy URL (e.g. http://host:port) used for every outbound request in this call (search APIs and content fetches). Node fetch ignores HTTP(S)_PROXY env vars, so set this (or `proxy` in web-search.json) when direct access is blocked; empty string forces direct access.",
+			})),
 		}),
 
 		async execute(callId, params, signal, onUpdate, ctx) {
+			setActiveProxy(typeof params.proxy === "string" ? params.proxy : undefined);
 			const rawQueryList: unknown[] = Array.isArray(params.queries)
 				? params.queries
 				: (params.query !== undefined ? [params.query] : []);
@@ -2272,8 +2277,12 @@ export default function (pi: ExtensionAPI) {
 			recencyFilter: Type.Optional(StringEnum(["day", "week", "month", "year"], { description: "Filter by recency." })),
 			domainFilter: Type.Optional(Type.Array(Type.String(), { description: "Limit to domains; prefix with - to exclude." })),
 			provider: Type.Optional(searchProviderSchema("Search provider or non-empty list of providers to search simultaneously; all searches every eligible provider except DuckDuckGo, AnySearch, xAI, Bright Data, SerpBase, Serper, and Valyu")),
+			proxy: Type.Optional(Type.String({
+				description: "http(s) proxy URL (e.g. http://host:port) used for every outbound request in this call (search APIs and result-page fetches). Empty string forces direct access.",
+			})),
 		}),
 		async execute(_callId, params, signal, _onUpdate, ctx) {
+			setActiveProxy(typeof params.proxy === "string" ? params.proxy : undefined);
 			const claim = typeof params.claim === "string" ? params.claim.trim() : "";
 			if (!claim) {
 				return { content: [{ type: "text", text: "Error: 'claim' is required." }], details: { error: "Missing claim" } };
@@ -2388,6 +2397,9 @@ export default function (pi: ExtensionAPI) {
 			auth: Type.Optional(Type.Union([Type.String(), Type.Boolean()], {
 				description: "Opt into an authFetch profile for local browser-cookie fetching. Use a profile name, or true only when exactly one profile exists.",
 			})),
+			proxy: Type.Optional(Type.String({
+				description: "http(s) proxy URL (e.g. http://host:port) used for this fetch. Needed when the target is unreachable directly; localhost and NO_PROXY hosts always bypass the proxy. Empty string forces direct access.",
+			})),
 		}),
 
 		async execute(_toolCallId, params, signal, onUpdate, ctx): Promise<AgentToolResult<Record<string, unknown>>> {
@@ -2399,6 +2411,7 @@ export default function (pi: ExtensionAPI) {
 				return { content: [{ type: "text", text: `Error: ${error}` }], details: { error } };
 			}
 			const { urlList, options } = normalized;
+			setActiveProxy(options.proxy);
 			const mode = options.mode ?? "readable";
 			if (mode === "answer" && !options.prompt) {
 				return { content: [{ type: "text", text: "Error: mode answer requires prompt." }], details: { error: "mode answer requires prompt" } };

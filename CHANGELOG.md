@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **Proxy transport (curl-backed):** `web_search`, `source_check`, and `fetch_content` now accept an optional `proxy` parameter (e.g. `"http://host:port"`). When a proxy is active, all outbound HTTP(S) requests — search API calls, page fetches, and content extractions — are routed through `curl` automatically. This works around Node's built-in fetch ignoring `HTTP(S)_PROXY` env vars and undici `ProxyAgent` failing against several common HTTP proxies (ERR_SSL_WRONG_VERSION_NUMBER). Localhost and `NO_PROXY` hosts are never proxied. Configuration-level proxy can also be set via `"proxy"` in `~/.pi/web-search.json`.
 - Added deterministic Chromium cookie selection with `browserCookies.browser` and `browserCookies.profile`; arbitrary profile paths remain unsupported. Thanks to [@lmilojevicc](https://github.com/lmilojevicc) for issue #297.
 - Auto-specialize GitHub pull request and issue URLs in `fetch_content`, with `gh`-first metadata, bounded REST fallback, comment-anchor inclusion, truncation markers, and the `githubPrIssue.enabled` opt-out (#294).
 - Added opt-in `searchRouting.useCurrentModel` routing for automatic searches. Official OpenAI GPT Responses models can now fund an isolated Hosted `web_search` request using their exact model, endpoint, credentials, and headers before configured fallbacks. Thanks to [@nyankosama](https://github.com/nyankosama) for PR #293.

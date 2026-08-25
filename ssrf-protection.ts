@@ -1,7 +1,7 @@
 import { lookup as dnsLookup } from "node:dns/promises";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import net from "node:net";
-import { getWebSearchConfigPath } from "./utils.ts";
+import { getActiveProxy, getWebSearchConfigPath, isProxyBypassedUrl } from "./utils.ts";
 
 const DEFAULT_MAX_REDIRECTS = 5;
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
@@ -208,6 +208,11 @@ export async function validateRemoteUrl(rawUrl: string | URL, options: Validatio
 	}
 
 	if (shouldTrustEnvProxy(url, options.trustEnvProxy === true)) return url;
+
+	// While an explicit proxy is active the request is tunnelled through curl and
+	// DNS resolution happens on the proxy side, so local resolution results
+	// (often poisoned on censored networks) must not gate the request.
+	if (getActiveProxy() && !isProxyBypassedUrl(url)) return url;
 
 	let addresses: LookupAddress[];
 	try {

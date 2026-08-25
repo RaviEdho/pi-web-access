@@ -270,6 +270,21 @@ Raw and direct-image HTTP requests use the same SSRF validation, hostname domain
 
 `fetch_content` can opt into local browser-cookie auth with `auth: "profile"`, or `auth: true` when exactly one `authFetch` profile exists. Configure profiles in `~/.pi/web-search.json`, for example `{ "authFetch": { "social": ["x.com", "instagram.com"], "work": { "hosts": ["docs.company.com"], "chromeProfile": "Profile 2", "cache": "off" } } }`. Auth fetch uses only the local direct HTTP path, requires HTTPS, allows only configured hosts and their subdomains, refuses cross-origin redirects, and never sends cookies or authenticated content to hosted extraction providers. Browser cookie extraction remains opt-in through `allowBrowserCookies: true` or `PI_ALLOW_BROWSER_COOKIES=1`.
 
+#### Proxy (`proxy`)
+
+`web_search`, `source_check`, and `fetch_content` all accept an optional `proxy` string (e.g. `"http://mcr:4444"`). When provided, every outbound HTTP(S) request is routed through `curl` instead of Node's built-in fetch — this works around Node fetch ignoring `HTTP(S)_PROXY` env vars and undici `ProxyAgent` failing the TLS handshake against several common HTTP proxies (ERR_SSL_WRONG_VERSION_NUMBER).
+
+An empty string (`""`) forces a direct connection even when a config-level proxy is set. Omitting the parameter falls back to the global `proxy` in `~/.pi/web-search.json`.
+
+```jsonc
+// ~/.pi/web-search.json — global proxy for all tools
+{
+  "proxy": "http://mcr:4444"
+}
+```
+
+Localhost, `127.0.0.1`, `[::1]`, and any host matching the `NO_PROXY` environment variable are never proxied.
+
 When Readability fails or returns only a cookie notice, the extension can retry configured Firecrawl extraction, Jina Reader (handles JS rendering server-side, no API key needed), TinyFish, Search1API, Querit, Kagi Extract, Ollama Web Fetch, Parallel, Bright Data Web Unlocker, Gemini URL Context API, and Gemini Web extraction when browser cookies are enabled. Configure `fetchRouting.providers` to change the order or set of `fetch_content` providers. Supported values are `http`, `firecrawl`, `jina`, `tinyfish`, `search1api`, `querit`, `kagi`, `ollama`, `parallel`, `parallel-mcp`, `brightdata`, and `gemini`; when absent, the default order is unchanged. `parallel-mcp` is not in the default fetch order and must be listed explicitly. For remote HTTP(S) targets, third-party hosted providers are disabled unless `fetchRouting.allowRemoteHostedProviders` is `true`, because hosted services perform their own fetch and can see a different redirect chain than the local safety gate. Firecrawl stays available as a configured extraction service. Firecrawl requests are cache-only by default and require an explicit fresh-scrape opt-in before the Firecrawl server can fetch target URLs. Bright Data Web Unlocker runs last of the remote scraping providers, ahead of only the Gemini fallbacks, because it is billed per request against a paid account; it is skipped unless both a key and an `unblocker` zone are configured. It applies no minimum-length check, so any non-empty body it returns — including a short consent or paywall stub — is the final answer for that URL and the Gemini fallbacks are not tried. Handles SPAs, JS-heavy pages, and anti-bot protections transparently. Also parses Next.js RSC flight data when present. HTML extraction also surfaces registered discovery relations (`service-desc`, `service-doc`, `service-meta`, `api-catalog`, `describedby`) from the HTTP `Link` header and matching `link`/`a[rel]` markup. Readable or rendered content remains primary; on an empty shell, the normal extraction fallbacks run before declared links are returned on their own.
 
 ## How It Works
