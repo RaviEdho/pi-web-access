@@ -4,9 +4,8 @@ import { Type } from "typebox";
 import { StringEnum, type ImageContent, type TextContent } from "@earendil-works/pi-ai/compat";
 import type { ExtractedContent, ExtractOptions } from "./extract.ts";
 import { normalizeFetchContentParams } from "./fetch-params.ts";
-import { normalizeGetSearchContentParams } from "./get-search-content-params.ts";
 import { resolveAuthFetchProfile, type AuthFetchProfile } from "./auth-fetch.ts";
-import { findContent } from "./content-find.ts";
+import { findContent, type FindMode } from "./content-find.ts";
 import { answerFromPage } from "./page-query.ts";
 import { rewriteSearchQuery } from "./query-rewrite.ts";
 import { clearCloneCache } from "./github-extract.ts";
@@ -671,6 +670,40 @@ function normalizeFindQueries(value: string | string[]): string[] {
 	const queries = (Array.isArray(value) ? value : [value]).map(query => query.trim()).filter(Boolean);
 	if (queries.length === 0) throw new Error("findText must contain at least one non-empty string");
 	return queries;
+}
+
+interface GetSearchContentParams {
+	responseId: string;
+	query?: string;
+	queryIndex?: number;
+	url?: string;
+	urlIndex?: number;
+	offset?: number;
+	limit?: number;
+	findText?: string | string[];
+	findMode?: FindMode;
+}
+
+type RawGetSearchContentParams = Omit<GetSearchContentParams, "findMode"> & { findMode?: unknown };
+
+function normalizeFindMode(value: unknown): FindMode | undefined {
+	if (value === undefined) return undefined;
+	if (value === "exact" || value === "case-insensitive" || value === "fuzzy") return value;
+	throw new Error('findMode must be "exact", "case-insensitive", or "fuzzy"');
+}
+
+function normalizeGetSearchContentParams(params: RawGetSearchContentParams): GetSearchContentParams {
+	const normalized: GetSearchContentParams = { ...params, findMode: normalizeFindMode(params.findMode) };
+
+	if (normalized.query?.trim() === "") delete normalized.query;
+	if (normalized.url?.trim() === "") delete normalized.url;
+
+	if (normalized.findText !== undefined) {
+		delete normalized.offset;
+		delete normalized.limit;
+	}
+
+	return normalized;
 }
 
 function formatInputValue(value: unknown): string {
@@ -1470,25 +1503,25 @@ export default function (pi: ExtensionAPI) {
 				{
 					async onSummarize(selectedQueryIndices, summarizeSignal, model, feedback) {
 						return runWithProxy(pc.proxy, async () => {
-						if (pendingCurates.get(callId) !== pc) throw new Error("Curator session is no longer active.");
-						pc.onUpdate?.({
-							content: [{ type: "text", text: "Generating summary draft..." }],
-							details: { phase: "generating-summary", progress: 0.9, curatorUrl: pc.curatorUrl, timeoutSeconds: pc.timeoutSeconds, shortcut: curateKey },
-						});
-						const draft = await generateSummaryForSelectedIndices(
-							selectedQueryIndices,
-							pc.searchResults,
-							pc.summaryContext,
-							summarizeSignal,
-							model,
-							feedback,
-						);
-						if (pendingCurates.get(callId) !== pc) throw new Error("Curator session is no longer active.");
-						pc.onUpdate?.({
-							content: [{ type: "text", text: "Summary draft ready — waiting for approval..." }],
-							details: { phase: "waiting-for-approval", progress: 1, curatorUrl: pc.curatorUrl, timeoutSeconds: pc.timeoutSeconds, shortcut: curateKey },
-						});
-						return draft;
+							if (pendingCurates.get(callId) !== pc) throw new Error("Curator session is no longer active.");
+							pc.onUpdate?.({
+								content: [{ type: "text", text: "Generating summary draft..." }],
+								details: { phase: "generating-summary", progress: 0.9, curatorUrl: pc.curatorUrl, timeoutSeconds: pc.timeoutSeconds, shortcut: curateKey },
+							});
+							const draft = await generateSummaryForSelectedIndices(
+								selectedQueryIndices,
+								pc.searchResults,
+								pc.summaryContext,
+								summarizeSignal,
+								model,
+								feedback,
+							);
+							if (pendingCurates.get(callId) !== pc) throw new Error("Curator session is no longer active.");
+							pc.onUpdate?.({
+								content: [{ type: "text", text: "Summary draft ready — waiting for approval..." }],
+								details: { phase: "waiting-for-approval", progress: 1, curatorUrl: pc.curatorUrl, timeoutSeconds: pc.timeoutSeconds, shortcut: curateKey },
+							});
+							return draft;
 						});
 					},
 					onSubmit(payload) {
@@ -1565,20 +1598,20 @@ export default function (pi: ExtensionAPI) {
 					},
 					async onAddSearch(query, provider) {
 						return runWithProxy(pc.proxy, async () => {
-						if (pendingCurates.get(callId) !== pc) throw new Error("Curator session is no longer active.");
-						const requestedProvider = resolveCuratorSearchProvider(provider, pc.searchProvider);
-						const response = await search(query, {
-							provider: requestedProvider,
-							numResults: pc.numResults,
-							recencyFilter: pc.recencyFilter,
-							domainFilter: pc.domainFilter,
-							includeContent: pc.includeContent,
-							signal: addSearchSignal,
-							extensionContext: ctx,
-						});
-						if (pendingCurates.get(callId) !== pc) throw new Error("Curator session is no longer active.");
-						if (response.inlineContent) pc.allInlineContent.push(...response.inlineContent);
-						return toCuratorSearchEntries(response);
+							if (pendingCurates.get(callId) !== pc) throw new Error("Curator session is no longer active.");
+							const requestedProvider = resolveCuratorSearchProvider(provider, pc.searchProvider);
+							const response = await search(query, {
+								provider: requestedProvider,
+								numResults: pc.numResults,
+								recencyFilter: pc.recencyFilter,
+								domainFilter: pc.domainFilter,
+								includeContent: pc.includeContent,
+								signal: addSearchSignal,
+								extensionContext: ctx,
+							});
+							if (pendingCurates.get(callId) !== pc) throw new Error("Curator session is no longer active.");
+							if (response.inlineContent) pc.allInlineContent.push(...response.inlineContent);
+							return toCuratorSearchEntries(response);
 						});
 					},
 					onAddSearchResults(entries) {
@@ -1589,8 +1622,8 @@ export default function (pi: ExtensionAPI) {
 					},
 					async onRewriteQuery(query, rewriteSignal) {
 						return runWithProxy(pc.proxy, async () => {
-						if (pendingCurates.get(callId) !== pc) throw new Error("Curator session is no longer active.");
-						return rewriteSearchQuery(query, pc.summaryContext, rewriteSignal);
+							if (pendingCurates.get(callId) !== pc) throw new Error("Curator session is no longer active.");
+							return rewriteSearchQuery(query, pc.summaryContext, rewriteSignal);
 						});
 					},
 				},
@@ -1742,30 +1775,30 @@ export default function (pi: ExtensionAPI) {
 
 		async execute(callId, params, signal, onUpdate, ctx) {
 			return runWithProxy(typeof params.proxy === "string" ? params.proxy : undefined, async () => {
-			const rawQueryList: unknown[] = Array.isArray(params.queries)
-				? params.queries
-				: (params.query !== undefined ? [params.query] : []);
-			const queryList = normalizeQueryList(rawQueryList);
-			const configWorkflow = loadConfigForExtensionInit().workflow;
-			const workflow = resolveWorkflow(params.workflow ?? configWorkflow, ctx?.hasUI !== false);
-			const shouldCurate = workflow === "summary-review";
-			const recencyFilter = normalizeRecencyFilter(params.recencyFilter);
+				const rawQueryList: unknown[] = Array.isArray(params.queries)
+					? params.queries
+					: (params.query !== undefined ? [params.query] : []);
+				const queryList = normalizeQueryList(rawQueryList);
+				const configWorkflow = loadConfigForExtensionInit().workflow;
+				const workflow = resolveWorkflow(params.workflow ?? configWorkflow, ctx?.hasUI !== false);
+				const shouldCurate = workflow === "summary-review";
+				const recencyFilter = normalizeRecencyFilter(params.recencyFilter);
 
-			if (queryList.length === 0) {
-				return {
-					content: [{ type: "text", text: "Error: No query provided. Use 'query' or 'queries' parameter." }],
-					details: { error: "No query provided" },
-				};
-			}
+				if (queryList.length === 0) {
+					return {
+						content: [{ type: "text", text: "Error: No query provided. Use 'query' or 'queries' parameter." }],
+						details: { error: "No query provided" },
+					};
+				}
 
-			if (shouldCurate && !ctx) {
-				return {
-					content: [{ type: "text", text: "Error: Curation requires an active extension context." }],
-					details: { error: "Missing extension context" },
-				};
-			}
+				if (shouldCurate && !ctx) {
+					return {
+						content: [{ type: "text", text: "Error: Curation requires an active extension context." }],
+						details: { error: "Missing extension context" },
+					};
+				}
 
-			if (shouldCurate) {
+				if (shouldCurate) {
 				closeCurator(callId);
 
 				let resolvePromise: (value: AgentToolResult<Record<string, unknown>>) => void = () => {};
@@ -2311,82 +2344,82 @@ export default function (pi: ExtensionAPI) {
 		}),
 		async execute(_callId, params, signal, _onUpdate, ctx) {
 			return runWithProxy(typeof params.proxy === "string" ? params.proxy : undefined, async () => {
-			const claim = typeof params.claim === "string" ? params.claim.trim() : "";
-			if (!claim) {
-				return { content: [{ type: "text", text: "Error: 'claim' is required." }], details: { error: "Missing claim" } };
-			}
+				const claim = typeof params.claim === "string" ? params.claim.trim() : "";
+				if (!claim) {
+					return { content: [{ type: "text", text: "Error: 'claim' is required." }], details: { error: "Missing claim" } };
+				}
 
-			const requestedQueries = Array.isArray(params.queries)
-				? params.queries.filter((query): query is string => typeof query === "string").map((query) => query.trim()).filter(Boolean)
-				: [];
-			const queries = (requestedQueries.length > 0 ? requestedQueries : [claim]).slice(0, 8);
-			const numResults = typeof params.numResults === "number" && Number.isFinite(params.numResults)
-				? Math.min(20, Math.max(1, Math.floor(params.numResults)))
-				: 5;
-			const domainFilter = Array.isArray(params.domainFilter)
-				? params.domainFilter.filter((domain): domain is string => typeof domain === "string")
-				: undefined;
-			const recencyFilter = normalizeRecencyFilter(params.recencyFilter);
-			const resultsByUrl = new Map<string, SearchResult>();
-			const summaries: string[] = [];
-			const errors: Array<{ query: string; error: string }> = [];
-			let provider: string | undefined;
+				const requestedQueries = Array.isArray(params.queries)
+					? params.queries.filter((query): query is string => typeof query === "string").map((query) => query.trim()).filter(Boolean)
+					: [];
+				const queries = (requestedQueries.length > 0 ? requestedQueries : [claim]).slice(0, 8);
+				const numResults = typeof params.numResults === "number" && Number.isFinite(params.numResults)
+					? Math.min(20, Math.max(1, Math.floor(params.numResults)))
+					: 5;
+				const domainFilter = Array.isArray(params.domainFilter)
+					? params.domainFilter.filter((domain): domain is string => typeof domain === "string")
+					: undefined;
+				const recencyFilter = normalizeRecencyFilter(params.recencyFilter);
+				const resultsByUrl = new Map<string, SearchResult>();
+				const summaries: string[] = [];
+				const errors: Array<{ query: string; error: string }> = [];
+				let provider: string | undefined;
 
-			for (const query of queries) {
-				if (signal?.aborted) break;
-				try {
-					const response = await search(query, {
-						provider: resolveRequestedProvider(params.provider),
-						numResults,
-						recencyFilter,
-						domainFilter,
-						signal,
-						extensionContext: ctx,
-					});
+				for (const query of queries) {
 					if (signal?.aborted) break;
-					provider ??= response.provider;
-					if (response.answer) summaries.push(`${query}: ${response.answer}`);
-					for (const result of response.results) {
-						if (!resultsByUrl.has(result.url)) resultsByUrl.set(result.url, result);
+					try {
+						const response = await search(query, {
+							provider: resolveRequestedProvider(params.provider),
+							numResults,
+							recencyFilter,
+							domainFilter,
+							signal,
+							extensionContext: ctx,
+						});
+						if (signal?.aborted) break;
+						provider ??= response.provider;
+						if (response.answer) summaries.push(`${query}: ${response.answer}`);
+						for (const result of response.results) {
+							if (!resultsByUrl.has(result.url)) resultsByUrl.set(result.url, result);
+						}
+					} catch (err) {
+						if (signal?.aborted || isAbortError(err)) break;
+						errors.push({ query, error: err instanceof Error ? err.message : String(err) });
 					}
-				} catch (err) {
-					if (signal?.aborted || isAbortError(err)) break;
-					errors.push({ query, error: err instanceof Error ? err.message : String(err) });
 				}
-			}
 
-			const results = [...resultsByUrl.values()].slice(0, 20).map((result, index) => ({ ...result, rank: index + 1 }));
-			let fetched: ExtractedContent[] = [];
-			if (params.fetchContent && results.length > 0) {
-				const urls = results.slice(0, 5).map((result) => result.url);
-				try {
-					fetched = await fetchAllContent(urls, signal, withRegisteredFetchOptions(undefined, registeredToolNames, typeof params.proxy === "string" ? params.proxy : undefined));
-				} catch (err) {
-					if (signal?.aborted || isAbortError(err)) throw err;
-					fetched = urls.map((url) => ({ url, title: "", content: "", error: err instanceof Error ? err.message : String(err) }));
+				const results = [...resultsByUrl.values()].slice(0, 20).map((result, index) => ({ ...result, rank: index + 1 }));
+				let fetched: ExtractedContent[] = [];
+				if (params.fetchContent && results.length > 0) {
+					const urls = results.slice(0, 5).map((result) => result.url);
+					try {
+						fetched = await fetchAllContent(urls, signal, withRegisteredFetchOptions(undefined, registeredToolNames, typeof params.proxy === "string" ? params.proxy : undefined));
+					} catch (err) {
+						if (signal?.aborted || isAbortError(err)) throw err;
+						fetched = urls.map((url) => ({ url, title: "", content: "", error: err instanceof Error ? err.message : String(err) }));
+					}
 				}
-			}
-			const artifact = withClaimAssessment(buildResearchArtifact({
-				query: claim,
-				provider,
-				summary: summaries.length > 0 ? summaries.join("\n\n") : undefined,
-				results,
-				fetched,
-				recency: recencyFilter,
-				domainFilter,
-			}), [claim]);
-			if (errors.length > 0) artifact.errors = errors;
-			storeResearchArtifact(artifact);
-			pi.appendEntry("web-search-results", {
-				id: artifact.id,
-				type: "research",
-				timestamp: artifact.timestamp,
-				artifact,
-			});
-			return {
-				content: [{ type: "text", text: formatSourceCheckResult(artifact, getSearchContentEnabled ? toolNames.getSearchContent : null) }],
-				details: { responseId: artifact.id, artifact, sourceCount: artifact.sources.length, passageCount: artifact.passages.length },
-			};
+				const artifact = withClaimAssessment(buildResearchArtifact({
+					query: claim,
+					provider,
+					summary: summaries.length > 0 ? summaries.join("\n\n") : undefined,
+					results,
+					fetched,
+					recency: recencyFilter,
+					domainFilter,
+				}), [claim]);
+				if (errors.length > 0) artifact.errors = errors;
+				storeResearchArtifact(artifact);
+				pi.appendEntry("web-search-results", {
+					id: artifact.id,
+					type: "research",
+					timestamp: artifact.timestamp,
+					artifact,
+				});
+				return {
+					content: [{ type: "text", text: formatSourceCheckResult(artifact, getSearchContentEnabled ? toolNames.getSearchContent : null) }],
+					details: { responseId: artifact.id, artifact, sourceCount: artifact.sources.length, passageCount: artifact.passages.length },
+				};
 			});
 		},
 	});
@@ -2441,164 +2474,162 @@ export default function (pi: ExtensionAPI) {
 			}
 			const { urlList, options } = normalized;
 			return runWithProxy(options.proxy, async () => {
-			const mode = options.mode ?? "readable";
-			if (mode === "answer" && !options.prompt) {
-				return { content: [{ type: "text", text: "Error: mode answer requires prompt." }], details: { error: "mode answer requires prompt" } };
-			}
-			if (mode === "raw" && (options.forceClone === true || options.timestamp || options.frames || options.prompt || options.model || options.answerModel)) {
-				return { content: [{ type: "text", text: "Error: mode raw cannot be combined with forceClone, prompt, timestamp, frames, model, or answerModel." }], details: { error: "Incompatible raw mode options" } };
-			}
-			if (mode !== "answer" && options.answerModel) {
-				return { content: [{ type: "text", text: "Error: answerModel requires mode answer." }], details: { error: "answerModel requires mode answer" } };
-			}
-			if (mode === "answer" && options.model) {
-				return { content: [{ type: "text", text: "Error: use answerModel, not model, with mode answer." }], details: { error: "model is incompatible with mode answer" } };
-			}
-			if (mode === "answer" && options.auth !== undefined) {
-				return { content: [{ type: "text", text: "Error: auth cannot be combined with mode answer." }], details: { error: "auth cannot be combined with mode answer" } };
-			}
-			let authFetchProfile: AuthFetchProfile | undefined;
-			if (options.auth !== undefined) {
-				try {
-					authFetchProfile = resolveAuthFetchProfile(options.auth);
-				} catch (err) {
-					const error = err instanceof Error ? err.message : String(err);
-					return { content: [{ type: "text", text: `Error: ${error}` }], details: { error } };
+				const mode = options.mode ?? "readable";
+				if (mode === "answer" && !options.prompt) {
+					return { content: [{ type: "text", text: "Error: mode answer requires prompt." }], details: { error: "mode answer requires prompt" } };
 				}
-			}
-			if (urlList.length === 0) {
-				return {
-					content: [{ type: "text", text: "Error: No URL provided." }],
-					details: { error: "No URL provided" },
-				};
-			}
-
-			onUpdate?.({
-				content: [{ type: "text", text: `Fetching ${urlList.length} URL(s)...` }],
-				details: { phase: "fetch", progress: 0 },
-			});
-
-			const { answerModel: _answerModel, auth: _auth, ...extractionOptions } = options;
-			const fetchOptions = mode === "answer"
-				? (() => {
-					const { prompt: _prompt, ...rest } = extractionOptions;
-					return { ...rest, ...(authFetchProfile ? { authFetchProfile } : {}) };
-				})()
-				: { ...extractionOptions, ...(authFetchProfile ? { authFetchProfile } : {}) };
-			const fetchResults = await fetchAllContent(urlList, signal, withRegisteredFetchOptions(fetchOptions, registeredToolNames, options.proxy));
-			const presentedResults = mode === "answer"
-				? await Promise.all(fetchResults.map(async result => {
-					if (result.error) return result;
-					if (result.thumbnail || result.mimeType?.startsWith("image/")) {
-						return { ...result, error: "Page answer requires textual fetched content" };
-					}
+				if (mode === "raw" && (options.forceClone === true || options.timestamp || options.frames || options.prompt || options.model || options.answerModel)) {
+					return { content: [{ type: "text", text: "Error: mode raw cannot be combined with forceClone, prompt, timestamp, frames, model, or answerModel." }], details: { error: "Incompatible raw mode options" } };
+				}
+				if (mode !== "answer" && options.answerModel) {
+					return { content: [{ type: "text", text: "Error: answerModel requires mode answer." }], details: { error: "answerModel requires mode answer" } };
+				}
+				if (mode === "answer" && options.model) {
+					return { content: [{ type: "text", text: "Error: use answerModel, not model, with mode answer." }], details: { error: "model is incompatible with mode answer" } };
+				}
+				if (mode === "answer" && options.auth !== undefined) {
+					return { content: [{ type: "text", text: "Error: auth cannot be combined with mode answer." }], details: { error: "auth cannot be combined with mode answer" } };
+				}
+				let authFetchProfile: AuthFetchProfile | undefined;
+				if (options.auth !== undefined) {
 					try {
-						const answer = await answerFromPage({
-							question: options.prompt!,
-							pageText: result.content,
-							sourceUrl: result.url,
-							...(options.answerModel ? { model: options.answerModel } : {}),
-						}, ctx, signal);
-						return { ...result, content: answer.text };
+						authFetchProfile = resolveAuthFetchProfile(options.auth);
 					} catch (err) {
-						return { ...result, error: `Page answer failed: ${err instanceof Error ? err.message : String(err)}` };
+						const error = err instanceof Error ? err.message : String(err);
+						return { content: [{ type: "text", text: `Error: ${error}` }], details: { error } };
 					}
-				}))
-				: fetchResults;
-			const successful = presentedResults.filter((r) => !r.error).length;
-			const totalChars = presentedResults.reduce((sum, r) => sum + r.content.length, 0);
-
-			const responseId = generateId();
-			const data = {
-				id: responseId,
-				type: "fetch",
-				timestamp: Date.now(),
-				urls: stripThumbnails(fetchResults),
-			} satisfies StoredSearchData & { type: "fetch"; urls: ExtractedContent[] };
-			const storedContent = storeFetchResult(pi, responseId, data, authFetchProfile);
-
-			// Single URL: return content directly (possibly truncated) with responseId
-			if (urlList.length === 1) {
-				const result = presentedResults[0];
-				if (result.error) {
+				}
+				if (urlList.length === 0) {
 					return {
-						content: [{ type: "text", text: `Error: ${result.error}` }],
-						details: { urls: urlList, urlCount: 1, successful: 0, error: result.error, ...(storedContent ? { responseId } : {}), prompt: params.prompt, timestamp: params.timestamp, frames: params.frames },
+						content: [{ type: "text", text: "Error: No URL provided." }],
+						details: { error: "No URL provided" },
 					};
 				}
 
-				const fullLength = result.content.length;
-				const slice = initialContentSlice(result.content, getMaxInlineContentChars());
-				const truncated = slice.endOffset < fullLength;
-				let output = slice.text;
+				onUpdate?.({
+					content: [{ type: "text", text: `Fetching ${urlList.length} URL(s)...` }],
+					details: { phase: "fetch", progress: 0 },
+				});
 
-				if (truncated) {
-					output += `\n\n---\nShowing ${slice.endOffset} of ${fullLength} chars, ${slice.shownBytes} of ${slice.totalBytes} bytes, and ${slice.shownLines} of ${slice.totalLines} lines. `;
-					output += storedContent
-						? getSearchContentEnabled
-							? `Use ${toolNames.getSearchContent}({ responseId: "${responseId}", urlIndex: 0, offset: ${slice.endOffset} }) for the next slice.`
-							: "Content retrieval is not registered."
-						: "Authenticated fetch cache is off; repeat the fetch to read more.";
-				}
+				const { answerModel: _answerModel, auth: _auth, ...extractionOptions } = options;
+				const fetchOptions = mode === "answer"
+					? (() => {
+						const { prompt: _prompt, ...rest } = extractionOptions;
+						return { ...rest, ...(authFetchProfile ? { authFetchProfile } : {}) };
+					})()
+					: { ...extractionOptions, ...(authFetchProfile ? { authFetchProfile } : {}) };
+				const fetchResults = await fetchAllContent(urlList, signal, withRegisteredFetchOptions(fetchOptions, registeredToolNames, options.proxy));
+				const presentedResults = mode === "answer"
+					? await Promise.all(fetchResults.map(async result => {
+						if (result.error) return result;
+						if (result.thumbnail || result.mimeType?.startsWith("image/")) {
+							return { ...result, error: "Page answer requires textual fetched content" };
+						}
+						try {
+							const answer = await answerFromPage({
+								question: options.prompt!,
+								pageText: result.content,
+								sourceUrl: result.url,
+								...(options.answerModel ? { model: options.answerModel } : {}),
+							}, ctx, signal);
+							return { ...result, content: answer.text };
+						} catch (err) {
+							return { ...result, error: `Page answer failed: ${err instanceof Error ? err.message : String(err)}` };
+						}
+					}))
+					: fetchResults;
+				const successful = presentedResults.filter((r) => !r.error).length;
+				const totalChars = presentedResults.reduce((sum, r) => sum + r.content.length, 0);
 
-				const content: Array<TextContent | ImageContent> = [];
-				if (result.frames?.length) {
-					for (const frame of result.frames) {
-						content.push({ type: "image", data: frame.data, mimeType: frame.mimeType });
-						content.push({ type: "text", text: `Frame at ${frame.timestamp}` });
+				const responseId = generateId();
+				const data = {
+					id: responseId,
+					type: "fetch",
+					timestamp: Date.now(),
+					urls: stripThumbnails(fetchResults),
+				} satisfies StoredSearchData & { type: "fetch"; urls: ExtractedContent[] };
+				const storedContent = storeFetchResult(pi, responseId, data, authFetchProfile);
+
+				if (urlList.length === 1) {
+					const result = presentedResults[0];
+					if (result.error) {
+						return {
+							content: [{ type: "text", text: `Error: ${result.error}` }],
+							details: { urls: urlList, urlCount: 1, successful: 0, error: result.error, ...(storedContent ? { responseId } : {}), prompt: params.prompt, timestamp: params.timestamp, frames: params.frames },
+						};
 					}
-				} else if (result.thumbnail) {
-					content.push({ type: "image", data: result.thumbnail.data, mimeType: result.thumbnail.mimeType });
-				}
-				content.push({ type: "text", text: output });
 
-				const imageCount = (result.frames?.length ?? 0) + (result.thumbnail ? 1 : 0);
+					const fullLength = result.content.length;
+					const slice = initialContentSlice(result.content, getMaxInlineContentChars());
+					const truncated = slice.endOffset < fullLength;
+					let output = slice.text;
+
+					if (truncated) {
+						output += `\n\n---\nShowing ${slice.endOffset} of ${fullLength} chars, ${slice.shownBytes} of ${slice.totalBytes} bytes, and ${slice.shownLines} of ${slice.totalLines} lines. `;
+						output += storedContent
+							? getSearchContentEnabled
+								? `Use ${toolNames.getSearchContent}({ responseId: "${responseId}", urlIndex: 0, offset: ${slice.endOffset} }) for the next slice.`
+								: "Content retrieval is not registered."
+							: "Authenticated fetch cache is off; repeat the fetch to read more.";
+					}
+
+					const content: Array<TextContent | ImageContent> = [];
+					if (result.frames?.length) {
+						for (const frame of result.frames) {
+							content.push({ type: "image", data: frame.data, mimeType: frame.mimeType });
+							content.push({ type: "text", text: `Frame at ${frame.timestamp}` });
+						}
+					} else if (result.thumbnail) {
+						content.push({ type: "image", data: result.thumbnail.data, mimeType: result.thumbnail.mimeType });
+					}
+					content.push({ type: "text", text: output });
+
+					const imageCount = (result.frames?.length ?? 0) + (result.thumbnail ? 1 : 0);
+					return {
+						content,
+						details: {
+							urls: urlList,
+							urlCount: 1,
+							successful: 1,
+							totalChars: fullLength,
+							title: result.title,
+							...(storedContent ? { responseId } : {}),
+							truncated,
+							hasImage: imageCount > 0,
+							imageCount,
+							prompt: params.prompt,
+							timestamp: params.timestamp,
+							frames: params.frames,
+							duration: result.duration,
+							mode,
+							mimeType: result.mimeType,
+							status: result.status,
+							totalBytes: slice.totalBytes,
+							totalLines: slice.totalLines,
+							shownBytes: slice.shownBytes,
+							shownLines: slice.shownLines,
+						},
+					};
+				}
+
+				let output = "## Fetched URLs\n\n";
+				for (const { url, title, content, error } of presentedResults) {
+					if (error) {
+						output += `- ${url}: Error - ${error}\n`;
+					} else {
+						output += `- ${title || url} (${content.length} chars)\n`;
+					}
+				}
+				output += storedContent
+					? getSearchContentEnabled
+						? `\n---\nUse ${toolNames.getSearchContent}({ responseId: "${responseId}", urlIndex: 0 }) to retrieve bounded content slices.`
+						: "\n---\nContent retrieval is not registered."
+					: "\n---\nAuthenticated fetch cache is off; repeat the fetch to read content.";
+
 				return {
-					content,
-					details: {
-						urls: urlList,
-						urlCount: 1,
-						successful: 1,
-						totalChars: fullLength,
-						title: result.title,
-						...(storedContent ? { responseId } : {}),
-						truncated,
-						hasImage: imageCount > 0,
-						imageCount,
-						prompt: params.prompt,
-						timestamp: params.timestamp,
-						frames: params.frames,
-						duration: result.duration,
-						mode,
-						mimeType: result.mimeType,
-						status: result.status,
-						totalBytes: slice.totalBytes,
-						totalLines: slice.totalLines,
-						shownBytes: slice.shownBytes,
-						shownLines: slice.shownLines,
-					},
+					content: [{ type: "text", text: output }],
+					details: { urls: urlList, urlCount: urlList.length, successful, totalChars, ...(storedContent ? { responseId } : {}) },
 				};
-			}
-
-			// Multi-URL: existing behavior (summary + responseId)
-			let output = "## Fetched URLs\n\n";
-			for (const { url, title, content, error } of presentedResults) {
-				if (error) {
-					output += `- ${url}: Error - ${error}\n`;
-				} else {
-					output += `- ${title || url} (${content.length} chars)\n`;
-				}
-			}
-			output += storedContent
-				? getSearchContentEnabled
-					? `\n---\nUse ${toolNames.getSearchContent}({ responseId: "${responseId}", urlIndex: 0 }) to retrieve bounded content slices.`
-					: "\n---\nContent retrieval is not registered."
-				: "\n---\nAuthenticated fetch cache is off; repeat the fetch to read content.";
-
-			return {
-				content: [{ type: "text", text: output }],
-				details: { urls: urlList, urlCount: urlList.length, successful, totalChars, ...(storedContent ? { responseId } : {}) },
-			};
 			});
 		},
 

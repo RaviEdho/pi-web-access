@@ -90,6 +90,66 @@ interface AdcFile {
 	universe_domain?: string;
 }
 
+function objectRecord(value: unknown): Record<string, unknown> | null {
+	return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function stringField(record: Record<string, unknown>, name: string): string | undefined {
+	const value = record[name];
+	return typeof value === "string" ? value : undefined;
+}
+
+function requiredString(record: Record<string, unknown>, name: string, context: string): string {
+	const value = stringField(record, name)?.trim();
+	if (!value) throw new Error(`${context} is missing ${name}`);
+	return value;
+}
+
+function parseAdcFile(raw: string): AdcFile {
+	const parsed = objectRecord(JSON.parse(raw));
+	if (!parsed) throw new Error("credential root must be an object");
+	const type = stringField(parsed, "type") ?? "authorized_user";
+	if (type === "authorized_user") {
+		return {
+			type,
+			client_id: requiredString(parsed, "client_id", "Gemini ADC authorized_user file"),
+			client_secret: requiredString(parsed, "client_secret", "Gemini ADC authorized_user file"),
+			refresh_token: requiredString(parsed, "refresh_token", "Gemini ADC authorized_user file"),
+			universe_domain: stringField(parsed, "universe_domain"),
+		};
+	}
+	if (type === "service_account") {
+		return {
+			type,
+			client_email: requiredString(parsed, "client_email", "Gemini ADC service_account file"),
+			private_key: requiredString(parsed, "private_key", "Gemini ADC service_account file"),
+			private_key_id: stringField(parsed, "private_key_id"),
+			token_uri: stringField(parsed, "token_uri"),
+			universe_domain: stringField(parsed, "universe_domain"),
+		};
+	}
+	return { type };
+}
+
+function parseTokenExchangeResponse(text: string, context: string): CachedToken {
+	let raw: unknown;
+	try {
+		raw = JSON.parse(text);
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		throw new Error(`${context} returned invalid JSON: ${message}`);
+	}
+	const parsed = objectRecord(raw);
+	if (!parsed) throw new Error(`${context} returned a non-object response`);
+	const token = stringField(parsed, "access_token")?.trim();
+	if (!token) throw new Error(`${context} returned no access_token`);
+	const expiresIn = parsed.expires_in ?? 3600;
+	if (typeof expiresIn !== "number" || !Number.isFinite(expiresIn)) {
+		throw new Error(`${context} returned invalid expires_in`);
+	}
+	return { token, expiresAt: Date.now() + Math.max((expiresIn * 1000) - REFRESH_SKEW_MS, 60_000) };
+}
+
 async function loadAdcFile(): Promise<AdcFile> {
 	const path = getAdcPath();
 	if (!path || !existsSync(path)) {
@@ -97,7 +157,7 @@ async function loadAdcFile(): Promise<AdcFile> {
 	}
 	const raw = readFileSync(path, "utf-8");
 	try {
-		return JSON.parse(raw) as AdcFile;
+		return parseAdcFile(raw);
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
 		throw new Error(`Failed to parse Google Application Default Credentials file at ${path}: ${message}`);
@@ -149,12 +209,7 @@ async function exchangeRefreshToken(cfg: AdcFile, signal?: AbortSignal): Promise
 	if (!res.ok) {
 		throwOnTokenExchangeFailure(res, text, res.status);
 	}
-	const data = JSON.parse(text) as { access_token?: string; expires_in?: number };
-	if (!data.access_token) {
-		throw new Error("Gemini ADC token exchange returned no access_token");
-	}
-	const expiresInMs = (data.expires_in ?? 3600) * 1000;
-	return { token: data.access_token, expiresAt: Date.now() + Math.max(expiresInMs - REFRESH_SKEW_MS, 60_000) };
+	return parseTokenExchangeResponse(text, "Gemini ADC token exchange");
 }
 
 async function exchangeServiceAccountJwt(cfg: AdcFile, signal?: AbortSignal): Promise<CachedToken> {
@@ -193,12 +248,7 @@ async function exchangeServiceAccountJwt(cfg: AdcFile, signal?: AbortSignal): Pr
 	if (!res.ok) {
 		throwOnTokenExchangeFailure(res, text, res.status);
 	}
-	const data = JSON.parse(text) as { access_token?: string; expires_in?: number };
-	if (!data.access_token) {
-		throw new Error("Gemini ADC service account token exchange returned no access_token");
-	}
-	const expiresInMs = (data.expires_in ?? 3600) * 1000;
-	return { token: data.access_token, expiresAt: Date.now() + Math.max(expiresInMs - REFRESH_SKEW_MS, 60_000) };
+	return parseTokenExchangeResponse(text, "Gemini ADC service account token exchange");
 }
 
 export async function getAdcAccessToken(signal?: AbortSignal): Promise<string> {

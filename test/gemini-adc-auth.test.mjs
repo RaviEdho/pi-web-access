@@ -174,6 +174,65 @@ test("Gemini ADC credential parse errors include the file path", async () => {
 	assert.match(error, /adc\.json/);
 });
 
+test("Gemini ADC credential shape errors include the file path", async () => {
+	const root = await mkdtemp(join(tmpdir(), "pi-web-access-gemini-adc-shape-"));
+	const adcPath = join(root, "adc.json");
+	await writeFile(adcPath, JSON.stringify({ type: "authorized_user", client_id: "id", client_secret: "secret" }) + "\n", "utf8");
+
+	const child = runChild(`
+		const adc = await import(${JSON.stringify(geminiAdcModuleUrl)});
+		let error = null;
+		try {
+			await adc.getAdcAccessToken();
+		} catch (err) {
+			error = err.message;
+		}
+		console.log(JSON.stringify({ error }));
+	`, { HOME: root, USERPROFILE: root, PI_CODING_AGENT_DIR: root, GOOGLE_APPLICATION_CREDENTIALS: adcPath });
+
+	assert.equal(child.status, 0, child.stderr);
+	const { error } = JSON.parse(child.stdout.trim());
+	assert.match(error, /Failed to parse Google Application Default Credentials file at /);
+	assert.match(error, /authorized_user file is missing refresh_token/);
+});
+
+test("Gemini ADC rejects malformed token success responses", async () => {
+	const root = await mkdtemp(join(tmpdir(), "pi-web-access-gemini-adc-token-shape-"));
+	await writeAdc(root);
+	const env = { HOME: root, USERPROFILE: root, PI_CODING_AGENT_DIR: root, GOOGLE_APPLICATION_CREDENTIALS: join(root, "adc.json") };
+
+	const child = runChild(`
+		globalThis.fetch = async () => new Response(JSON.stringify({ access_token: true, expires_in: "bad" }), { status: 200 });
+		const adc = await import(${JSON.stringify(geminiAdcModuleUrl)});
+		let error = null;
+		try {
+			await adc.getAdcAccessToken();
+		} catch (err) {
+			error = err.message;
+		}
+		console.log(JSON.stringify({ error }));
+	`, env);
+
+	assert.equal(child.status, 0, child.stderr);
+	const { error } = JSON.parse(child.stdout.trim());
+	assert.match(error, /Gemini ADC token exchange returned no access_token/);
+
+	const expires = runChild(`
+		globalThis.fetch = async () => new Response(JSON.stringify({ access_token: "token", expires_in: "bad" }), { status: 200 });
+		const adc = await import(${JSON.stringify(geminiAdcModuleUrl)});
+		let error = null;
+		try {
+			await adc.getAdcAccessToken();
+		} catch (err) {
+			error = err.message;
+		}
+		console.log(JSON.stringify({ error }));
+	`, env);
+
+	assert.equal(expires.status, 0, expires.stderr);
+	assert.match(JSON.parse(expires.stdout.trim()).error, /Gemini ADC token exchange returned invalid expires_in/);
+});
+
 test("Gemini ADC never leaks the access token in errors", async () => {	const root = await mkdtemp(join(tmpdir(), "pi-web-access-gemini-adc-redact-"));
 	await writeAdc(root);
 	await writeFile(
