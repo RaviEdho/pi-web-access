@@ -8,7 +8,8 @@ interface GeminiWebConfig {
 	allowBrowserCookies?: boolean;
 }
 
-export type BrowserCookiePreset = "helium" | "chrome" | "brave" | "arc" | "chromium" | "edge";
+const BROWSER_COOKIE_PRESETS = ["helium", "chrome", "brave", "arc", "chromium", "edge"] as const;
+export type BrowserCookiePreset = typeof BROWSER_COOKIE_PRESETS[number];
 
 export interface BrowserCookieSelection {
 	browser?: BrowserCookiePreset;
@@ -36,10 +37,11 @@ function parseBrowserCookies(value: unknown): BrowserCookieSelection | undefined
 	if (raw.browser !== undefined) {
 		if (typeof raw.browser !== "string") throw new Error(`browserCookies.browser in ${CONFIG_PATH} must be a supported browser name`);
 		const normalized = raw.browser.trim().toLowerCase();
-		if (!(["helium", "chrome", "brave", "arc", "chromium", "edge"] as string[]).includes(normalized)) {
+		const preset = BROWSER_COOKIE_PRESETS.find((candidate) => candidate === normalized);
+		if (!preset) {
 			throw new Error(`Unsupported browserCookies.browser ${JSON.stringify(raw.browser)} in ${CONFIG_PATH}`);
 		}
-		browser = normalized as BrowserCookiePreset;
+		browser = preset;
 	}
 	if (raw.profile !== undefined && typeof raw.profile !== "string") {
 		throw new Error(`browserCookies.profile in ${CONFIG_PATH} must be a profile directory name`);

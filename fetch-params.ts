@@ -1,3 +1,5 @@
+import { normalizeProxyUrl } from "./utils.ts";
+
 export interface FetchContentParams {
 	url?: unknown;
 	urls?: unknown;
@@ -94,22 +96,9 @@ function normalizeAuth(value: unknown): true | string | undefined {
 
 function normalizeProxy(value: unknown): string | undefined {
 	if (value === undefined || value === false) return undefined;
-	if (value === true) throw new Error("proxy must be an http(s) proxy URL string");
-	if (typeof value === "string") {
-		const trimmed = value.trim();
-		if (!trimmed) return "";
-		let parsed: URL;
-		try {
-			parsed = new URL(trimmed);
-		} catch {
-			throw new Error(`proxy must be a valid proxy URL: ${JSON.stringify(trimmed)}`);
-		}
-		if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-			throw new Error(`proxy must use the http:// or https:// scheme: ${trimmed}`);
-		}
-		return trimmed;
-	}
-	throw new Error("proxy must be an http(s) proxy URL string");
+	if (value === null) throw new Error("proxy must be an http(s) proxy URL string");
+	const normalized = normalizeProxyUrl(value, "proxy");
+	return normalized ?? "";
 }
 
 function normalizeOptionalFrameCount(value: unknown): number | undefined {
