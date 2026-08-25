@@ -1,7 +1,7 @@
 import { lookup as dnsLookup } from "node:dns/promises";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import net from "node:net";
-import { getWebSearchConfigPath } from "./utils.ts";
+import { getActiveProxy, getWebSearchConfigPath, hasScopedProxyDecision, isProxyBypassedUrl } from "./utils.ts";
 
 const DEFAULT_MAX_REDIRECTS = 5;
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
@@ -329,6 +329,9 @@ function hostnameMatchesNoProxy(hostname: string, port: string, entry: string): 
 
 function shouldTrustEnvProxy(url: URL, enabled: boolean): boolean {
 	if (!enabled || !getProxyForProtocol(url.protocol)) return false;
+	if (hasScopedProxyDecision()) return false;
+	const activeProxy = getActiveProxy();
+	if (activeProxy && !isProxyBypassedUrl(url)) return false;
 	const hostname = normalizeHostname(url.hostname);
 	const port = url.port || (url.protocol === "https:" ? "443" : "80");
 	const noProxy = process.env.NO_PROXY || process.env.no_proxy || "";

@@ -12,7 +12,7 @@ import { rewriteSearchQuery } from "./query-rewrite.ts";
 import { clearCloneCache } from "./github-extract.ts";
 import { getConfiguredSearchRouting, normalizeSearchProviderSelection, RESOLVED_SEARCH_PROVIDERS, SEARCH_PROVIDERS, search, type AttributedSearchResponse, type SearchProvider, type SearchProviderSelection, type ResolvedSearchProvider } from "./gemini-search.ts";
 import type { SearchResult } from "./perplexity.ts";
-import { formatSeconds, getWebSearchConfigDir, getWebSearchConfigPath, resolveCuratorNetworkConfig } from "./utils.ts";
+import { formatSeconds, getWebSearchConfigDir, getWebSearchConfigPath, installGlobalProxyFetch, resolveCuratorNetworkConfig, runWithProxy } from "./utils.ts";
 import {
 	clearResults,
 	deleteResult,
@@ -91,6 +91,18 @@ async function fetchAllContent(
 ): Promise<ExtractedContent[]> {
 	const extractModule = await (extractModulePromise ??= import("./extract.ts"));
 	return extractModule.fetchAllContent(urls, signal, options);
+}
+
+function withRegisteredFetchOptions(
+	options: ExtractOptions | undefined,
+	toolNames: ExtractOptions["toolNames"],
+	proxy?: string,
+): ExtractOptions {
+	return {
+		...(options ?? {}),
+		toolNames,
+		...(proxy !== undefined ? { proxy } : {}),
+	};
 }
 
 function isAbortError(err: unknown): boolean {
@@ -595,6 +607,7 @@ interface PendingCurate {
 	summaryModels: Array<{ value: string; label: string }>;
 	defaultSummaryModel: string | null;
 	timeoutSeconds: number;
+	proxy?: string;
 	curatorUrl?: string;
 	onUpdate: ((update: { content: Array<{ type: string; text: string }>; details?: Record<string, unknown> }) => void) | undefined;
 	signal: AbortSignal | undefined;
@@ -989,6 +1002,7 @@ function handleSessionChange(ctx: ExtensionContext): void {
 
 export default function (pi: ExtensionAPI) {
 	const initConfig = loadConfigForExtensionInit();
+	installGlobalProxyFetch();
 	const toolNames = resolveToolNames(initConfig);
 	const webSearchEnabled = isToolEnabled(initConfig, "webSearch");
 	const sourceCheckEnabled = isToolEnabled(initConfig, "sourceCheck");
@@ -1014,12 +1028,12 @@ export default function (pi: ExtensionAPI) {
 	const curateKey = initConfig.shortcuts?.curate || DEFAULT_SHORTCUTS.curate;
 	const activityKey = initConfig.shortcuts?.activity || DEFAULT_SHORTCUTS.activity;
 
-	function startBackgroundFetch(urls: string[]): string | null {
+	function startBackgroundFetch(urls: string[], proxy?: string): string | null {
 		if (urls.length === 0) return null;
 		const fetchId = generateId();
 		const controller = new AbortController();
 		pendingFetches.set(fetchId, controller);
-		fetchAllContent(urls, controller.signal, { toolNames: registeredToolNames })
+		runWithProxy(proxy, () => fetchAllContent(urls, controller.signal, withRegisteredFetchOptions(undefined, registeredToolNames, proxy)))
 			.then((fetched) => {
 				if (!sessionActive || !pendingFetches.has(fetchId)) return;
 				const data = {
@@ -1084,6 +1098,7 @@ export default function (pi: ExtensionAPI) {
 		workflow?: SummaryWorkflow;
 		approvedSummary?: string;
 		summaryMeta?: SummaryMeta;
+		proxy?: string;
 	}
 
 	function normalizeSummaryMeta(meta: SummaryMeta | undefined, summaryText: string): SummaryMeta {
@@ -1336,7 +1351,7 @@ export default function (pi: ExtensionAPI) {
 				output += `---\nFull content for ${opts.inlineContent.length} sources available [${fetchId}].`;
 			}
 		} else if (opts.includeContent) {
-			fetchId = startBackgroundFetch(opts.urls);
+			fetchId = startBackgroundFetch(opts.urls, opts.proxy);
 			if (fetchId && !hasApprovedSummary) {
 				output += `---\nContent fetching in background [${fetchId}]. Will notify when ready.`;
 			}
@@ -1451,6 +1466,7 @@ export default function (pi: ExtensionAPI) {
 				},
 				{
 					async onSummarize(selectedQueryIndices, summarizeSignal, model, feedback) {
+						return runWithProxy(pc.proxy, async () => {
 						if (pendingCurates.get(callId) !== pc) throw new Error("Curator session is no longer active.");
 						pc.onUpdate?.({
 							content: [{ type: "text", text: "Generating summary draft..." }],
@@ -1470,6 +1486,7 @@ export default function (pi: ExtensionAPI) {
 							details: { phase: "waiting-for-approval", progress: 1, curatorUrl: pc.curatorUrl, timeoutSeconds: pc.timeoutSeconds, shortcut: curateKey },
 						});
 						return draft;
+						});
 					},
 					onSubmit(payload) {
 						if (pendingCurates.get(callId) !== pc) return;
@@ -1486,6 +1503,7 @@ export default function (pi: ExtensionAPI) {
 							inlineContent: filteredInline.length > 0 ? filteredInline : undefined,
 							curated: true,
 							curatedFrom: pc.searchResults.size,
+							proxy: pc.proxy,
 						};
 						if (!payload.rawResults) {
 							const resolvedSummary = resolveSummaryForSubmit(payload, pc.searchResults);
@@ -1514,6 +1532,7 @@ export default function (pi: ExtensionAPI) {
 								workflow: pc.workflow,
 								approvedSummary: resolvedSummary.approvedSummary,
 								summaryMeta: resolvedSummary.summaryMeta,
+								proxy: pc.proxy,
 							}));
 						} else {
 							const conn = activeCurators.get(callId)?.getConnectionState();
@@ -1542,6 +1561,7 @@ export default function (pi: ExtensionAPI) {
 						}
 					},
 					async onAddSearch(query, provider) {
+						return runWithProxy(pc.proxy, async () => {
 						if (pendingCurates.get(callId) !== pc) throw new Error("Curator session is no longer active.");
 						const requestedProvider = resolveCuratorSearchProvider(provider, pc.searchProvider);
 						const response = await search(query, {
@@ -1556,6 +1576,7 @@ export default function (pi: ExtensionAPI) {
 						if (pendingCurates.get(callId) !== pc) throw new Error("Curator session is no longer active.");
 						if (response.inlineContent) pc.allInlineContent.push(...response.inlineContent);
 						return toCuratorSearchEntries(response);
+						});
 					},
 					onAddSearchResults(entries) {
 						if (pendingCurates.get(callId) !== pc) return;
@@ -1564,8 +1585,10 @@ export default function (pi: ExtensionAPI) {
 						}
 					},
 					async onRewriteQuery(query, rewriteSignal) {
+						return runWithProxy(pc.proxy, async () => {
 						if (pendingCurates.get(callId) !== pc) throw new Error("Curator session is no longer active.");
 						return rewriteSearchQuery(query, pc.summaryContext, rewriteSignal);
+						});
 					},
 				},
 			);
@@ -1709,9 +1732,13 @@ export default function (pi: ExtensionAPI) {
 					description: "Search workflow mode: none = no curator, summary-review = open curator with auto summary draft (default), auto-summary = generate summary without opening curator",
 				}),
 			),
+			proxy: Type.Optional(Type.String({
+				description: "http(s) proxy URL (e.g. http://host:port) used for every outbound request in this call (search APIs and content fetches). Node fetch ignores HTTP(S)_PROXY env vars, so set this (or `proxy` in web-search.json) when direct access is blocked; empty string forces direct access.",
+			})),
 		}),
 
 		async execute(callId, params, signal, onUpdate, ctx) {
+			return runWithProxy(typeof params.proxy === "string" ? params.proxy : undefined, async () => {
 			const rawQueryList: unknown[] = Array.isArray(params.queries)
 				? params.queries
 				: (params.query !== undefined ? [params.query] : []);
@@ -1790,6 +1817,7 @@ export default function (pi: ExtensionAPI) {
 					summaryModels: summaryModelChoices.summaryModels,
 					defaultSummaryModel: summaryModelChoices.defaultSummaryModel,
 					timeoutSeconds: curatorTimeoutSeconds,
+					proxy: typeof params.proxy === "string" ? params.proxy : undefined,
 					onUpdate: onUpdate as PendingCurate["onUpdate"],
 					signal,
 					abortSearches: () => {
@@ -2000,6 +2028,8 @@ export default function (pi: ExtensionAPI) {
 				workflow: workflow === "auto-summary" ? "auto-summary" : undefined,
 				approvedSummary,
 				summaryMeta,
+				proxy: typeof params.proxy === "string" ? params.proxy : undefined,
+			});
 			});
 		},
 
@@ -2272,8 +2302,12 @@ export default function (pi: ExtensionAPI) {
 			recencyFilter: Type.Optional(StringEnum(["day", "week", "month", "year"], { description: "Filter by recency." })),
 			domainFilter: Type.Optional(Type.Array(Type.String(), { description: "Limit to domains; prefix with - to exclude." })),
 			provider: Type.Optional(searchProviderSchema("Search provider or non-empty list of providers to search simultaneously; all searches every eligible provider except DuckDuckGo, AnySearch, xAI, Bright Data, SerpBase, Serper, and Valyu")),
+			proxy: Type.Optional(Type.String({
+				description: "http(s) proxy URL (e.g. http://host:port) used for every outbound request in this call (search APIs and result-page fetches). Empty string forces direct access.",
+			})),
 		}),
 		async execute(_callId, params, signal, _onUpdate, ctx) {
+			return runWithProxy(typeof params.proxy === "string" ? params.proxy : undefined, async () => {
 			const claim = typeof params.claim === "string" ? params.claim.trim() : "";
 			if (!claim) {
 				return { content: [{ type: "text", text: "Error: 'claim' is required." }], details: { error: "Missing claim" } };
@@ -2323,7 +2357,7 @@ export default function (pi: ExtensionAPI) {
 			if (params.fetchContent && results.length > 0) {
 				const urls = results.slice(0, 5).map((result) => result.url);
 				try {
-					fetched = await fetchAllContent(urls, signal, { toolNames: registeredToolNames });
+					fetched = await fetchAllContent(urls, signal, withRegisteredFetchOptions(undefined, registeredToolNames, typeof params.proxy === "string" ? params.proxy : undefined));
 				} catch (err) {
 					if (signal?.aborted || isAbortError(err)) throw err;
 					fetched = urls.map((url) => ({ url, title: "", content: "", error: err instanceof Error ? err.message : String(err) }));
@@ -2350,6 +2384,7 @@ export default function (pi: ExtensionAPI) {
 				content: [{ type: "text", text: formatSourceCheckResult(artifact, getSearchContentEnabled ? toolNames.getSearchContent : null) }],
 				details: { responseId: artifact.id, artifact, sourceCount: artifact.sources.length, passageCount: artifact.passages.length },
 			};
+			});
 		},
 	});
 
@@ -2388,6 +2423,9 @@ export default function (pi: ExtensionAPI) {
 			auth: Type.Optional(Type.Union([Type.String(), Type.Boolean()], {
 				description: "Opt into an authFetch profile for local browser-cookie fetching. Use a profile name, or true only when exactly one profile exists.",
 			})),
+			proxy: Type.Optional(Type.String({
+				description: "http(s) proxy URL (e.g. http://host:port) used for this fetch. Needed when the target is unreachable directly; localhost and NO_PROXY hosts always bypass the proxy. Empty string forces direct access.",
+			})),
 		}),
 
 		async execute(_toolCallId, params, signal, onUpdate, ctx): Promise<AgentToolResult<Record<string, unknown>>> {
@@ -2399,6 +2437,7 @@ export default function (pi: ExtensionAPI) {
 				return { content: [{ type: "text", text: `Error: ${error}` }], details: { error } };
 			}
 			const { urlList, options } = normalized;
+			return runWithProxy(options.proxy, async () => {
 			const mode = options.mode ?? "readable";
 			if (mode === "answer" && !options.prompt) {
 				return { content: [{ type: "text", text: "Error: mode answer requires prompt." }], details: { error: "mode answer requires prompt" } };
@@ -2443,7 +2482,7 @@ export default function (pi: ExtensionAPI) {
 					return { ...rest, ...(authFetchProfile ? { authFetchProfile } : {}) };
 				})()
 				: { ...extractionOptions, ...(authFetchProfile ? { authFetchProfile } : {}) };
-			const fetchResults = await fetchAllContent(urlList, signal, { ...fetchOptions, toolNames: registeredToolNames });
+			const fetchResults = await fetchAllContent(urlList, signal, withRegisteredFetchOptions(fetchOptions, registeredToolNames, options.proxy));
 			const presentedResults = mode === "answer"
 				? await Promise.all(fetchResults.map(async result => {
 					if (result.error) return result;
@@ -2557,6 +2596,7 @@ export default function (pi: ExtensionAPI) {
 				content: [{ type: "text", text: output }],
 				details: { urls: urlList, urlCount: urlList.length, successful, totalChars, ...(storedContent ? { responseId } : {}) },
 			};
+			});
 		},
 
 		renderCall(args, theme) {

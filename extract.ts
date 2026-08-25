@@ -24,7 +24,7 @@ import { extractWithBrightDataUnlocker, isBrightDataUnlockerAvailable } from "./
 import { isVideoFile, extractVideo, extractVideoFrame, getLocalVideoDuration } from "./video-extract.ts";
 import { appendDeclaredWebLinks, discoverDeclaredWebLinks, type DeclaredWebLink } from "./declared-web-links.ts";
 import { fetchRemoteUrl, loadFetchContentDomainPolicy, loadSsrfConfig, validateRemoteUrl, type DomainPolicy, type Lookup, type SsrfConfig } from "./ssrf-protection.ts";
-import { formatSeconds, getWebSearchConfigPath } from "./utils.ts";
+import { formatSeconds, getWebSearchConfigPath, type ProxiedRequestInit } from "./utils.ts";
 import { isImageEnabled } from "./feature-config.ts";
 import { assertAuthFetchUrl, authFetchRedirectGuard, type AuthFetchProfile } from "./auth-fetch.ts";
 import { getBrowserCookiesForHosts, getLastBrowserCookieDiagnostic } from "./chrome-cookies.ts";
@@ -262,6 +262,8 @@ export interface ExtractOptions {
 	answerModel?: string;
 	authFetchProfile?: AuthFetchProfile;
 	toolNames?: RegisteredToolNames;
+	/** Optional http(s) proxy URL; routed through the curl-backed transport. */
+	proxy?: string;
 	/** Custom DNS resolver used for SSRF validation. Primarily a test seam. */
 	lookup?: Lookup;
 }
@@ -1054,8 +1056,10 @@ async function extractViaHttp(
 		const ssrf = loadSsrfConfig();
 		const domainPolicy = loadFetchContentDomainPolicy();
 		const authProfile = options?.authFetchProfile;
-		const requestInit = {
+		const trustEnvProxy = options?.proxy === undefined && ssrf.trustEnvProxy;
+		const requestInit: ProxiedRequestInit = {
 			signal: controller.signal,
+			__proxy: options?.proxy,
 			headers: {
 				"User-Agent": "OpenAI File Downloader, XaiImageApiFetch/1.0",
 				"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
@@ -1069,13 +1073,13 @@ async function extractViaHttp(
 			},
 		};
 		const response = authProfile
-			? await fetchAuthenticatedRemoteUrl(url, requestInit, { ssrf, domainPolicy, ...(options?.lookup ? { lookup: options.lookup } : {}) }, authProfile)
+			? await fetchAuthenticatedRemoteUrl(url, requestInit, { ssrf: { ...ssrf, trustEnvProxy }, domainPolicy, ...(options?.lookup ? { lookup: options.lookup } : {}) }, authProfile)
 			: await fetchRemoteUrl(
 				url,
 				requestInit,
 				{
 					allowRanges: ssrf.allowRanges,
-					trustEnvProxy: ssrf.trustEnvProxy,
+					trustEnvProxy,
 					domainPolicy,
 					...(options?.lookup ? { lookup: options.lookup } : {}),
 				},
