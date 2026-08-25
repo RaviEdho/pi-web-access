@@ -994,6 +994,12 @@ export default function (pi: ExtensionAPI) {
 	const sourceCheckEnabled = isToolEnabled(initConfig, "sourceCheck");
 	const fetchContentEnabled = isToolEnabled(initConfig, "fetchContent");
 	const getSearchContentEnabled = isToolEnabled(initConfig, "getSearchContent");
+	// Names as registered this session, so fetch failure guidance never points
+	// at tools that are disabled or were renamed after init.
+	const registeredToolNames = {
+		...(webSearchEnabled ? { webSearch: toolNames.webSearch } : {}),
+		...(fetchContentEnabled ? { fetchContent: toolNames.fetchContent } : {}),
+	};
 	const storedContentSources = joinToolNames([
 		...(webSearchEnabled ? [toolNames.webSearch] : []),
 		...(sourceCheckEnabled ? [toolNames.sourceCheck] : []),
@@ -1013,7 +1019,7 @@ export default function (pi: ExtensionAPI) {
 		const fetchId = generateId();
 		const controller = new AbortController();
 		pendingFetches.set(fetchId, controller);
-		fetchAllContent(urls, controller.signal)
+		fetchAllContent(urls, controller.signal, { toolNames: registeredToolNames })
 			.then((fetched) => {
 				if (!sessionActive || !pendingFetches.has(fetchId)) return;
 				const data = {
@@ -2317,7 +2323,7 @@ export default function (pi: ExtensionAPI) {
 			if (params.fetchContent && results.length > 0) {
 				const urls = results.slice(0, 5).map((result) => result.url);
 				try {
-					fetched = await fetchAllContent(urls, signal);
+					fetched = await fetchAllContent(urls, signal, { toolNames: registeredToolNames });
 				} catch (err) {
 					if (signal?.aborted || isAbortError(err)) throw err;
 					fetched = urls.map((url) => ({ url, title: "", content: "", error: err instanceof Error ? err.message : String(err) }));
@@ -2437,7 +2443,7 @@ export default function (pi: ExtensionAPI) {
 					return { ...rest, ...(authFetchProfile ? { authFetchProfile } : {}) };
 				})()
 				: { ...extractionOptions, ...(authFetchProfile ? { authFetchProfile } : {}) };
-			const fetchResults = await fetchAllContent(urlList, signal, fetchOptions);
+			const fetchResults = await fetchAllContent(urlList, signal, { ...fetchOptions, toolNames: registeredToolNames });
 			const presentedResults = mode === "answer"
 				? await Promise.all(fetchResults.map(async result => {
 					if (result.error) return result;
