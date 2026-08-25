@@ -28,10 +28,16 @@ function loadConfig(): GeminiAdcConfig {
 		cachedConfig = {};
 		return cachedConfig;
 	}
+	const raw = readFileSync(CONFIG_PATH, "utf-8");
 	try {
-		cachedConfig = JSON.parse(readFileSync(CONFIG_PATH, "utf-8")) as GeminiAdcConfig;
-	} catch {
-		cachedConfig = {};
+		const parsed = JSON.parse(raw);
+		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+			throw new Error("config root must be an object");
+		}
+		cachedConfig = parsed as GeminiAdcConfig;
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		throw new Error(`Failed to parse ${CONFIG_PATH}: ${message}`);
 	}
 	return cachedConfig;
 }
@@ -90,7 +96,12 @@ async function loadAdcFile(): Promise<AdcFile> {
 		throw new Error(`Google Application Default Credentials file not found at ${path}`);
 	}
 	const raw = readFileSync(path, "utf-8");
-	return JSON.parse(raw) as AdcFile;
+	try {
+		return JSON.parse(raw) as AdcFile;
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		throw new Error(`Failed to parse Google Application Default Credentials file at ${path}: ${message}`);
+	}
 }
 
 interface CachedToken {

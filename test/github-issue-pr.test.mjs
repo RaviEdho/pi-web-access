@@ -350,6 +350,37 @@ test("extractGitHubIssuePr aborts a hung gh availability probe", async () => {
 	assert.ok(output.elapsed < 1000, `expected abort before gh probe timeout, got ${output.elapsed}ms`);
 });
 
+test("REST fallback preserves caller cancellation", async () => {
+	const root = await mkdtemp(join(tmpdir(), "pi-web-access-gh-rest-abort-"));
+	const binDir = join(root, "bin");
+	const agentDir = join(root, "agent");
+	await mkdir(binDir, { recursive: true });
+	await mkdir(agentDir, { recursive: true });
+	await writeFakeExecutable(binDir, "gh", `process.exit(1);`);
+
+	const child = spawnSync(process.execPath, ["--input-type=module"], {
+		input: `
+			const controller = new AbortController();
+			globalThis.fetch = async (_input, init = {}) => {
+				setTimeout(() => controller.abort(), 10);
+				await new Promise((resolve, reject) => init.signal.addEventListener("abort", () => reject(new Error("Aborted REST fetch")), { once: true }));
+			};
+			const { extractContent } = await import(${JSON.stringify(extractUrl)});
+			const lookup = ${publicLookup.toString()};
+			const started = Date.now();
+			const result = await extractContent("https://github.com/owner/repo/issues/12", controller.signal, { lookup });
+			console.log(JSON.stringify({ elapsed: Date.now() - started, result }));
+		`,
+		encoding: "utf8",
+		env: { ...process.env, PATH: `${binDir}${delimiter}${process.env.PATH || ""}`, PI_CODING_AGENT_DIR: agentDir },
+	});
+
+	assert.equal(child.status, 0, child.stderr);
+	const output = JSON.parse(child.stdout.split("\n").at(-2));
+	assert.equal(output.result.error, "Aborted");
+	assert.ok(output.elapsed < 1000, `expected REST abort before generic fallback, got ${output.elapsed}ms`);
+});
+
 test("extractContent returns an actionable GitHub rate-limit result instead of HTML fall-through", async () => {
 	const root = await mkdtemp(join(tmpdir(), "pi-web-access-gh-rate-"));
 	const binDir = join(root, "bin");
