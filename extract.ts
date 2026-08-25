@@ -1056,6 +1056,7 @@ async function extractViaHttp(
 		const ssrf = loadSsrfConfig();
 		const domainPolicy = loadFetchContentDomainPolicy();
 		const authProfile = options?.authFetchProfile;
+		const trustEnvProxy = options?.proxy === undefined && ssrf.trustEnvProxy;
 		const requestInit: ProxiedRequestInit = {
 			signal: controller.signal,
 			__proxy: options?.proxy,
@@ -1072,13 +1073,13 @@ async function extractViaHttp(
 			},
 		};
 		const response = authProfile
-			? await fetchAuthenticatedRemoteUrl(url, requestInit, { ssrf, domainPolicy, ...(options?.lookup ? { lookup: options.lookup } : {}) }, authProfile)
+			? await fetchAuthenticatedRemoteUrl(url, requestInit, { ssrf: { ...ssrf, trustEnvProxy }, domainPolicy, ...(options?.lookup ? { lookup: options.lookup } : {}) }, authProfile)
 			: await fetchRemoteUrl(
 				url,
 				requestInit,
 				{
 					allowRanges: ssrf.allowRanges,
-					trustEnvProxy: ssrf.trustEnvProxy,
+					trustEnvProxy,
 					domainPolicy,
 					...(options?.lookup ? { lookup: options.lookup } : {}),
 				},
