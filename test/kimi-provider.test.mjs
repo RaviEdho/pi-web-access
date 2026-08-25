@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -188,6 +189,26 @@ test("Kimi applies normalized domain filters and numResults locally", async () =
 	assert.equal(response.answer, "one\nSource: First (https://allowed.example/first)\n\ntwo\nSource: Second (https://docs.allowed.example/second)");
 });
 
+test("Kimi drops malformed and non-web result URLs before citation", async () => {
+	const { context } = registryContext();
+	const response = await withFetch(async () => new Response(JSON.stringify({
+		search_results: [
+			{ title: "Script", url: "javascript:alert(1)", snippet: "bad" },
+			{ title: "FTP", url: "ftp://example.com/file", snippet: "bad" },
+			{ title: "Relative", url: "/relative", snippet: "bad" },
+			{ title: "Malformed", url: "not a url", snippet: "bad" },
+			{ title: "HTTPS", url: " https://example.com/ok ", snippet: "good" },
+			{ title: "HTTP", url: "http://example.org/path", snippet: "also good" },
+		],
+	}), { status: 200 }), () => searchWithKimi("safe urls", {}, context));
+
+	assert.deepEqual(response.results, [
+		{ title: "HTTPS", url: "https://example.com/ok", snippet: "good" },
+		{ title: "HTTP", url: "http://example.org/path", snippet: "also good" },
+	]);
+	assert.doesNotMatch(response.answer, /javascript:|ftp:|relative|not a url/);
+});
+
 test("Kimi rejects invalid JSON and empty result envelopes", async () => {
 	const { context } = registryContext();
 	await withFetch(
@@ -222,4 +243,93 @@ test("explicit kimi routing dispatches through the Kimi Code search endpoint", a
 		if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
 		else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
 	}
+});
+
+test("configured routing falls back when Kimi hits its provider timeout", async () => {
+	const agentDir = await mkdtemp(join(tmpdir(), "pi-web-access-kimi-timeout-routing-"));
+	await writeFile(join(agentDir, "web-search.json"), JSON.stringify({
+		braveApiKey: "brave-routing-key",
+		searchRouting: { providers: ["kimi", "brave"], fallbackOn: ["network"] },
+	}) + "\n", "utf8");
+	const child = spawnSync(process.execPath, ["--input-type=module"], {
+		input: `
+			globalThis.calls = [];
+			globalThis.fetch = async (url) => {
+				const target = String(url);
+				globalThis.calls.push(target);
+				if (target === "https://api.kimi.com/coding/v1/search") {
+					throw new DOMException("The operation timed out", "TimeoutError");
+				}
+				if (target.startsWith("https://api.search.brave.com/res/v1/web/search?")) {
+					return new Response(JSON.stringify({
+						web: { results: [{ title: "Brave fallback", url: "https://example.com/brave", description: "fallback ok" }] },
+					}), { status: 200 });
+				}
+				throw new Error("Unexpected fetch " + target);
+			};
+			const { search } = await import(${JSON.stringify(searchModuleUrl)});
+			const context = {
+				modelRegistry: {
+					getAll: () => [{ provider: "kimi-coding", id: "kimi-for-coding" }],
+					getApiKeyAndHeaders: async () => ({ ok: true, apiKey: "kimi-oauth-token", headers: {} }),
+				},
+			};
+			const result = await search("fallback after kimi timeout", { extensionContext: context });
+			console.log(JSON.stringify({ result, calls: globalThis.calls }));
+		`,
+		encoding: "utf8",
+		env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, BRAVE_API_KEY: "brave-routing-key" },
+		maxBuffer: 2 * 1024 * 1024,
+	});
+	assert.equal(child.status, 0, child.stderr);
+	const output = JSON.parse(child.stdout.trim());
+	assert.equal(output.result.provider, "brave");
+	assert.deepEqual(output.result.results, [{ title: "Brave fallback", url: "https://example.com/brave", snippet: "fallback ok" }]);
+	assert.equal(output.calls[0], "https://api.kimi.com/coding/v1/search");
+	assert.match(output.calls[1], /^https:\/\/api\.search\.brave\.com\/res\/v1\/web\/search\?/);
+});
+
+test("configured routing does not fall back when the caller cancels Kimi", async () => {
+	const agentDir = await mkdtemp(join(tmpdir(), "pi-web-access-kimi-cancel-routing-"));
+	await writeFile(join(agentDir, "web-search.json"), JSON.stringify({
+		braveApiKey: "brave-routing-key",
+		searchRouting: { providers: ["kimi", "brave"], fallbackOn: ["network"] },
+	}) + "\n", "utf8");
+	const child = spawnSync(process.execPath, ["--input-type=module"], {
+		input: `
+			globalThis.calls = [];
+			globalThis.fetch = async (url, init = {}) => {
+				const target = String(url);
+				globalThis.calls.push(target);
+				if (target === "https://api.kimi.com/coding/v1/search") {
+					if (!init.signal?.aborted) throw new Error("expected aborted Kimi signal");
+					throw new DOMException("The operation was aborted", "AbortError");
+				}
+				throw new Error("Unexpected fallback fetch " + target);
+			};
+			const { search } = await import(${JSON.stringify(searchModuleUrl)});
+			const context = {
+				modelRegistry: {
+					getAll: () => [{ provider: "kimi-coding", id: "kimi-for-coding" }],
+					getApiKeyAndHeaders: async () => ({ ok: true, apiKey: "kimi-oauth-token", headers: {} }),
+				},
+			};
+			const controller = new AbortController();
+			controller.abort();
+			let message = "";
+			try {
+				await search("cancel kimi", { extensionContext: context, signal: controller.signal });
+			} catch (error) {
+				message = String(error);
+			}
+			console.log(JSON.stringify({ message, calls: globalThis.calls }));
+		`,
+		encoding: "utf8",
+		env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, BRAVE_API_KEY: "brave-routing-key" },
+		maxBuffer: 2 * 1024 * 1024,
+	});
+	assert.equal(child.status, 0, child.stderr);
+	const output = JSON.parse(child.stdout.trim());
+	assert.match(output.message, /aborted/i);
+	assert.deepEqual(output.calls, ["https://api.kimi.com/coding/v1/search"]);
 });
