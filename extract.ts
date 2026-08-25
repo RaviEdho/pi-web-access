@@ -942,13 +942,11 @@ export async function extractContent(
 }
 
 function isLikelyJSRendered(html: string): boolean {
-	// Extract body content
 	const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
 	if (!bodyMatch) return false;
 
 	const bodyHtml = bodyMatch[1];
 
-	// Strip tags to get text content
 	const textContent = bodyHtml
 		.replace(/<script[\s\S]*?<\/script>/gi, "")
 		.replace(/<style[\s\S]*?<\/style>/gi, "")
@@ -956,10 +954,8 @@ function isLikelyJSRendered(html: string): boolean {
 		.replace(/\s+/g, " ")
 		.trim();
 
-	// Count scripts
 	const scriptCount = (html.match(/<script/gi) || []).length;
 
-	// Heuristic: little text content but many scripts suggests JS rendering
 	return textContent.length < 500 && scriptCount > 3;
 }
 
