@@ -43,6 +43,17 @@ type FetchRouting = { providers: FetchProvider[]; allowRemoteHostedProviders: bo
 const DEFAULT_FETCH_PROVIDER_ORDER: FetchProvider[] = ["http", "firecrawl", "jina", "tinyfish", "search1api", "querit", "kagi", "ollama", "parallel", "brightdata", "gemini"];
 const REMOTE_HOSTED_FETCH_PROVIDERS = new Set<FetchProvider>(["jina", "tinyfish", "search1api", "querit", "kagi", "ollama", "parallel", "parallel-mcp", "brightdata", "gemini"]);
 
+async function extractWithDefuddle(text: string, url: string): Promise<{ title: string; content: string } | null> {
+	try {
+		const { Defuddle } = await import("defuddle/node");
+		const { document } = parseHTML(text);
+		const result = await Defuddle(document as unknown as Document, url, { markdown: true, useAsync: false });
+		return typeof result.content === "string" ? { title: result.title, content: result.content } : null;
+	} catch {
+		return null;
+	}
+}
+
 export { loadSsrfConfig } from "./ssrf-protection.ts";
 
 export function loadSsrfAllowRanges(): string[] {
@@ -1183,6 +1194,19 @@ async function extractViaHttp(
 					declaredLinks,
 				};
 			}
+			controller.signal.throwIfAborted();
+			const defuddleResult = await extractWithDefuddle(text, response.url || url);
+			controller.signal.throwIfAborted();
+			if (defuddleResult && defuddleResult.content.length >= MIN_USEFUL_CONTENT) {
+				activityMonitor.logComplete(activityId, response.status);
+				return {
+					url,
+					title: documentTitle || defuddleResult.title,
+					content: appendDeclaredWebLinks(defuddleResult.content, declaredLinks),
+					error: null,
+					declaredLinks,
+				};
+			}
 
 			activityMonitor.logComplete(activityId, response.status);
 			const jsRendered = isLikelyJSRendered(text);
@@ -1212,6 +1236,18 @@ async function extractViaHttp(
 					url,
 					title: rscResult.title,
 					content: appendDeclaredWebLinks(rscResult.content, declaredLinks),
+					error: null,
+					declaredLinks,
+				};
+			}
+			controller.signal.throwIfAborted();
+			const defuddleResult = await extractWithDefuddle(text, response.url || url);
+			controller.signal.throwIfAborted();
+			if (defuddleResult && defuddleResult.content.length >= MIN_USEFUL_CONTENT) {
+				return {
+					url,
+					title: article.title || documentTitle || defuddleResult.title,
+					content: appendDeclaredWebLinks(defuddleResult.content, declaredLinks),
 					error: null,
 					declaredLinks,
 				};
