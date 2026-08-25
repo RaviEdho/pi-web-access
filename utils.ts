@@ -289,8 +289,13 @@ export function isProxyBypassedUrl(url: URL): boolean {
 	return false;
 }
 
+export interface ProxiedRequestInit extends RequestInit {
+	/** Caller-supplied proxy; bypasses AsyncLocalStorage for pLimit-safe contexts. */
+	__proxy?: string;
+}
+
 interface ProxiedFetch {
-	(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
+	(input: RequestInfo | URL, init?: ProxiedRequestInit): Promise<Response>;
 	__piWebAccessProxyFetch?: boolean;
 }
 
@@ -299,8 +304,9 @@ export function installGlobalProxyFetch(): void {
 	const current = globalThis.fetch as ProxiedFetch;
 	if (typeof current !== "function" || current.__piWebAccessProxyFetch === true) return;
 	const nativeFetch = current;
-	const wrapped: ProxiedFetch = ((input: RequestInfo | URL, init?: RequestInit) => {
-		const proxy = getActiveProxy();
+	const wrapped: ProxiedFetch = ((input: RequestInfo | URL, init?: ProxiedRequestInit) => {
+		// Prefer caller-attached __proxy (survives pLimit context loss) over AsyncLocalStorage.
+		const proxy = init?.__proxy ?? getActiveProxy();
 		if (!proxy) return nativeFetch(input, init);
 		let url: URL | null = null;
 		try {

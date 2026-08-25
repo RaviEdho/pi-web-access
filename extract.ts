@@ -24,7 +24,7 @@ import { extractWithBrightDataUnlocker, isBrightDataUnlockerAvailable } from "./
 import { isVideoFile, extractVideo, extractVideoFrame, getLocalVideoDuration } from "./video-extract.ts";
 import { appendDeclaredWebLinks, discoverDeclaredWebLinks, type DeclaredWebLink } from "./declared-web-links.ts";
 import { fetchRemoteUrl, loadFetchContentDomainPolicy, loadSsrfConfig, validateRemoteUrl, type DomainPolicy, type Lookup, type SsrfConfig } from "./ssrf-protection.ts";
-import { formatSeconds, getWebSearchConfigPath } from "./utils.ts";
+import { formatSeconds, getWebSearchConfigPath, type ProxiedRequestInit } from "./utils.ts";
 import { isImageEnabled } from "./feature-config.ts";
 import { assertAuthFetchUrl, authFetchRedirectGuard, type AuthFetchProfile } from "./auth-fetch.ts";
 import { getBrowserCookiesForHosts, getLastBrowserCookieDiagnostic } from "./chrome-cookies.ts";
@@ -1056,8 +1056,9 @@ async function extractViaHttp(
 		const ssrf = loadSsrfConfig();
 		const domainPolicy = loadFetchContentDomainPolicy();
 		const authProfile = options?.authFetchProfile;
-		const requestInit = {
+		const requestInit: ProxiedRequestInit = {
 			signal: controller.signal,
+			__proxy: options?.proxy,
 			headers: {
 				"User-Agent": "OpenAI File Downloader, XaiImageApiFetch/1.0",
 				"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
