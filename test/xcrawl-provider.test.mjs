@@ -145,3 +145,21 @@ test("XCrawl rejects unexpected envelope shapes instead of returning empty answe
 	assert.equal(output.failed, true);
 	assert.match(output.message, /invalid response/);
 });
+
+test("XCrawl is unavailable without credentials and never part of auto fallback", async () => {
+	const home = await createHome({});
+	const child = runChild(`
+		const calls = [];
+		globalThis.fetch = async (url) => { calls.push(String(url)); throw new Error("unexpected auto provider"); };
+		const { isXcrawlAvailable } = await import(${JSON.stringify(xcrawlModuleUrl)});
+		const { search } = await import(${JSON.stringify(searchModuleUrl)});
+		let autoError = "";
+		try { await search("auto", { provider: "auto" }); } catch (error) { autoError = String(error); }
+		console.log(JSON.stringify({ available: isXcrawlAvailable(), calls, autoError }));
+	`, { PI_CODING_AGENT_DIR: home });
+	assert.equal(child.status, 0, child.stderr);
+	const output = JSON.parse(child.stdout.trim());
+	assert.equal(output.available, false);
+	assert.ok(output.calls.every((url) => !url.startsWith("https://run.xcrawl.com/")));
+	assert.doesNotMatch(output.autoError, /XCrawl/);
+});

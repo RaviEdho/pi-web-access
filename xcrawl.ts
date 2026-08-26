@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { activityMonitor } from "./activity.ts";
 import type { SearchOptions, SearchResponse } from "./perplexity.ts";
-import { redactCredential, resolveCredential } from "./credential-source.ts";
+import { hasCredentialSource, redactCredential, resolveCredential } from "./credential-source.ts";
 import { getWebSearchConfigPath } from "./utils.ts";
 
 const XCRAWL_API_URL = "https://run.xcrawl.com/v1/search";
@@ -71,7 +71,7 @@ async function getApiKey(signal?: AbortSignal): Promise<string | null> {
 }
 
 export function isXcrawlAvailable(): boolean {
-	return true;
+	return hasCredentialSource({ provider: "XCrawl", configuredValue: loadConfig().xcrawlApiKey, environmentValue: process.env.XCRAWL_API_KEY });
 }
 
 function normalizeCount(value: number | undefined): number {

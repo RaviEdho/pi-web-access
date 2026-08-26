@@ -103,7 +103,7 @@ export interface AttributedSearchResponse extends SearchResponse {
 
 const CONFIG_PATH = getWebSearchConfigPath();
 const DEFAULT_SEARCH_MODEL = "gemini-3.6-flash";
-// Explicit-only providers (Parallel MCP, DuckDuckGo, Kimi, AnySearch, xAI, Bright Data, SerpBase, Serper, Valyu) are deliberately absent:
+// Explicit-only providers (Parallel MCP, DuckDuckGo, Kimi, AnySearch, XCrawl, xAI, Bright Data, SerpBase, Serper, Valyu) are deliberately absent:
 // `all` must never fan out to an opt-in or paid provider without the user asking for it.
 const ALL_SEARCH_PROVIDERS: ResolvedSearchProvider[] = ["searxng", "openai", "exa", "brave", "parallel", "tinyfish", "search1api", "searchinfinity", "querit", "tavily", "firecrawl", "jina", "serpdive", "kagi", "ollama", "perplexity", "gemini", "bocha"];
 const VALID_ROUTING_KINDS = ["transient", "quota", "network", "invalid-response", "unsupported"] as const;
