@@ -90,6 +90,29 @@ test("XCrawl applies the shared domain filter client-side", async () => {
 	assert.deepEqual(output.fuzzyUrls, ["https://www.example.com/first"]);
 });
 
+test("XCrawl preserves explicit www. labels in domain filters", async () => {
+	const home = await createHome({ xcrawlApiKey: "xc-test-key" });
+	const child = runChild(`
+		globalThis.fetch = async () => new Response(JSON.stringify(${JSON.stringify(serpEnvelope({
+			organic: [
+				{ position: 1, title: "WWW result", link: "https://www.example.com/first", snippet: "WWW result snippet." },
+				{ position: 2, title: "Blog result", link: "https://blog.example.com/second", snippet: "Blog result snippet." },
+			],
+		}))}), { status: 200 });
+		const { searchWithXCrawl } = await import(${JSON.stringify(xcrawlModuleUrl)});
+		const included = await searchWithXCrawl("q", { domainFilter: ["www.example.com"] });
+		const excluded = await searchWithXCrawl("q", { domainFilter: ["-www.example.com"] });
+		console.log(JSON.stringify({
+			includedUrls: included.results.map((r) => r.url),
+			excludedUrls: excluded.results.map((r) => r.url),
+		}));
+	`, { PI_CODING_AGENT_DIR: home });
+	assert.equal(child.status, 0, child.stderr);
+	const output = JSON.parse(child.stdout.trim());
+	assert.deepEqual(output.includedUrls, ["https://www.example.com/first"]);
+	assert.deepEqual(output.excludedUrls, ["https://blog.example.com/second"]);
+});
+
 test("XCrawl caps results to the requested numResults", async () => {
 	const home = await createHome({ xcrawlApiKey: "xc-test-key" });
 	const child = runChild(`

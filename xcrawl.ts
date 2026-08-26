@@ -94,7 +94,7 @@ function normalizeDomain(value: string): string | null {
 	} catch {
 		input = input.split("/")[0]?.split(":")[0] ?? "";
 	}
-	input = input.replace(/^\.+|\.+$/g, "").replace(/^www\./, "");
+	input = input.replace(/^\.+|\.+$/g, "");
 	return /^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$/i.test(input) ? input : null;
 }
 
@@ -111,7 +111,7 @@ function applyDomainFilter(results: SearchResponse["results"], domainFilter: Non
 	}
 	if (!includes.length && !excludes.length) return results;
 	return results.filter((result) => {
-		const host = hostnameOf(result.url).replace(/^www\./, "");
+		const host = hostnameOf(result.url);
 		if (!host) return false;
 		const matches = (domain: string) => host === domain || host.endsWith(`.${domain}`);
 		if (excludes.some(matches)) return false;
