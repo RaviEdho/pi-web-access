@@ -174,6 +174,9 @@ function buildAnswer(results: SearchResponse["results"]): string {
 
 export async function searchWithXCrawl(query: string, options: SearchOptions = {}): Promise<SearchResponse> {
 	const apiKey = await getApiKey(options.signal);
+	const numResults = typeof options.numResults === "number" && Number.isFinite(options.numResults)
+		? Math.max(1, Math.min(Math.floor(options.numResults), 20))
+		: 5;
 	if (!apiKey) {
 		throw new Error(
 			"XCrawl search requires an API key. Set xcrawlApiKey in " + CONFIG_PATH +
@@ -243,7 +246,7 @@ export async function searchWithXCrawl(query: string, options: SearchOptions = {
 		throw invalidResponse(`response body is not valid JSON: ${errorMessage(err)}`);
 	}
 	const { results } = parseResponse(payload);
-	const filtered = options.domainFilter?.length ? applyDomainFilter(results, options.domainFilter) : results;
+	const filtered = (options.domainFilter?.length ? applyDomainFilter(results, options.domainFilter) : results).slice(0, numResults);
 
 	return {
 		answer: buildAnswer(filtered),

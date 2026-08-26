@@ -90,6 +90,26 @@ test("XCrawl applies the shared domain filter client-side", async () => {
 	assert.deepEqual(output.fuzzyUrls, ["https://www.example.com/first"]);
 });
 
+test("XCrawl caps results to the requested numResults", async () => {
+	const home = await createHome({ xcrawlApiKey: "xc-test-key" });
+	const child = runChild(`
+		globalThis.fetch = async () => new Response(JSON.stringify(${JSON.stringify(serpEnvelope({
+			organic: [
+				{ position: 1, title: "First result", link: "https://www.example.com/first", snippet: "First result snippet." },
+				{ position: 2, title: "Second result", link: "https://www.example.com/second", snippet: "Second result snippet." },
+				{ position: 3, title: "Third result", link: "https://www.example.com/third", snippet: "Third result snippet." },
+			],
+		}))}), { status: 200 });
+		const { searchWithXCrawl } = await import(${JSON.stringify(xcrawlModuleUrl)});
+		const response = await searchWithXCrawl("q", { numResults: 1 });
+		console.log(JSON.stringify(response.results));
+	`, { PI_CODING_AGENT_DIR: home });
+	assert.equal(child.status, 0, child.stderr);
+	const results = JSON.parse(child.stdout.trim());
+	assert.equal(results.length, 1);
+	assert.equal(results[0].url, "https://www.example.com/first");
+});
+
 test("XCrawl surfaces documented API errors without leaking the key", async () => {
 	const home = await createHome({ xcrawlApiKey: "xc-secret-key" });
 	const child = runChild(`
