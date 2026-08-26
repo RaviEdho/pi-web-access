@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- XCrawl explicit-only search provider (`provider: "xcrawl"`) with `xcrawlApiKey` / `XCRAWL_API_KEY` credentials, optional `location`/`language` forwarding, and null-title fallback to result URL
+
 ## [0.25.0] - 2026-08-25
 
 ### Highlights
