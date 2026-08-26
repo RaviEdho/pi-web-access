@@ -4,37 +4,28 @@ import type { SearchOptions, SearchResponse } from "./perplexity.ts";
 import { hasCredentialSource, redactCredential, resolveCredential } from "./credential-source.ts";
 import { getWebSearchConfigPath } from "./utils.ts";
 
-const XCRAWL_API_URL = "https://run.xcrawl.com/v1/search";
+const XCRAWL_API_URL = "https://run.xcrawl.com/v1/serp";
 const CONFIG_PATH = getWebSearchConfigPath();
-// XCrawl search is an asynchronous job that regularly takes tens of seconds;
-// allow more headroom than the typical instant SERP provider.
-const SEARCH_TIMEOUT_MS = 90_000;
+// The SERP API is usually fast (a few seconds, cached responses are quicker),
+// but leave generous headroom before treating a slow job as a provider failure.
+const SEARCH_TIMEOUT_MS = 60_000;
 
 interface WebSearchConfig {
 	xcrawlApiKey?: unknown;
 }
 
-interface XCrawlResult {
-	description?: unknown;
+interface XCrawlSerpResult {
 	position?: unknown;
 	title?: unknown;
-	url?: unknown;
+	link?: unknown;
+	snippet?: unknown;
 }
 
-interface XCrawlResponse {
-	code?: unknown;
-	search_id?: unknown;
-	endpoint?: unknown;
-	status?: unknown;
-	query?: unknown;
-	data?: unknown;
+interface XCrawlSerpResponse {
+	search_metadata?: unknown;
+	organic_results?: unknown;
 	message?: unknown;
-	total_credits_used?: unknown;
-}
-
-interface XCrawlSearchOptions extends SearchOptions {
-	location?: string;
-	language?: string;
+	error?: unknown;
 }
 
 let cachedConfig: WebSearchConfig | null = null;
@@ -74,11 +65,6 @@ export function isXcrawlAvailable(): boolean {
 	return hasCredentialSource({ provider: "XCrawl", configuredValue: loadConfig().xcrawlApiKey, environmentValue: process.env.XCRAWL_API_KEY });
 }
 
-function normalizeCount(value: number | undefined): number {
-	if (typeof value !== "number" || !Number.isFinite(value)) return 10;
-	return Math.max(1, Math.min(Math.floor(value), 100));
-}
-
 function errorMessage(err: unknown): string {
 	return err instanceof Error ? err.message : String(err);
 }
@@ -87,45 +73,72 @@ function invalidResponse(message: string): Error {
 	return new Error(`XCrawl API returned invalid response: ${message}`);
 }
 
+function hostnameOf(url: string): string {
+	try {
+		return new URL(url).hostname.toLowerCase();
+	} catch {
+		return "";
+	}
+}
+
+function hostMatches(host: string, domain: string): boolean {
+	const normalized = domain.toLowerCase().replace(/^www\./, "");
+	return host === normalized || host.endsWith(`.${normalized}`);
+}
+
+// XCrawl's SERP API has no server-side domain filter, so apply the shared
+// include/exclude domainFilter locally instead of returning off-domain results.
+function applyDomainFilter(results: SearchResponse["results"], domainFilter: NonNullable<SearchOptions["domainFilter"]>): SearchResponse["results"] {
+	const includes = domainFilter.filter((d) => !d.startsWith("-"));
+	const excludes = domainFilter.filter((d) => d.startsWith("-")).map((d) => d.slice(1));
+	if (!includes.length && !excludes.length) return results;
+	return results.filter((result) => {
+		const host = hostnameOf(result.url);
+		if (!host) return false;
+		if (excludes.some((domain) => hostMatches(host, domain))) return false;
+		if (includes.length && !includes.some((domain) => hostMatches(host, domain))) return false;
+		return true;
+	});
+}
+
 interface ParsedEnvelope {
-	results: { title: string; url: string; snippet: string }[];
+	results: SearchResponse["results"];
 }
 
 function parseResponse(value: unknown): ParsedEnvelope {
 	if (!value || typeof value !== "object" || Array.isArray(value)) {
 		throw invalidResponse("expected an object envelope");
 	}
-	const envelope = value as XCrawlResponse;
-	if (envelope.status !== "completed") {
-		throw invalidResponse(`expected status \"completed\", got ${JSON.stringify(envelope.status ?? null)}`);
+	const envelope = value as XCrawlSerpResponse;
+	const metadata = envelope.search_metadata;
+	if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+		throw invalidResponse("expected search_metadata object");
 	}
-	if (!envelope.data || typeof envelope.data !== "object" || Array.isArray(envelope.data)) {
-		throw invalidResponse("expected data object");
+	const status = (metadata as Record<string, unknown>).status;
+	if (status !== undefined && status !== "completed") {
+		throw invalidResponse(`expected search_metadata.status \"completed\", got ${JSON.stringify(status)}`);
 	}
-	const data = envelope.data as Record<string, unknown>;
-	if (data.status !== undefined && data.status !== "success") {
-		throw invalidResponse(`expected data.status \"success\", got ${JSON.stringify(data.status)}`);
-	}
-	if (!Array.isArray(data.data)) throw invalidResponse("expected data.data array");
+	if (envelope.organic_results === undefined) return { results: [] };
+	if (!Array.isArray(envelope.organic_results)) throw invalidResponse("expected organic_results array");
 
-	const results: ParsedEnvelope["results"] = [];
-	for (const [index, value] of (data.data as unknown[]).entries()) {
+	const results: SearchResponse["results"] = [];
+	for (const [index, value] of (envelope.organic_results as unknown[]).entries()) {
 		if (!value || typeof value !== "object" || Array.isArray(value)) {
-			throw invalidResponse(`expected data.data[${index}] object`);
+			throw invalidResponse(`expected organic_results[${index}] object`);
 		}
-		const result = value as XCrawlResult;
-		const { title, url, description } = result;
-		if (typeof url !== "string" || !url) throw invalidResponse(`expected data.data[${index}].url to be a non-empty string`);
+		const result = value as XCrawlSerpResult;
+		const { title, link, snippet } = result;
+		if (typeof link !== "string" || !link) throw invalidResponse(`expected organic_results[${index}].link to be a non-empty string`);
 		if (title !== null && title !== undefined && typeof title !== "string") {
-			throw invalidResponse(`expected data.data[${index}].title to be a string or null`);
+			throw invalidResponse(`expected organic_results[${index}].title to be a string or null`);
 		}
-		if (description !== undefined && description !== null && typeof description !== "string") {
-			throw invalidResponse(`expected data.data[${index}].description to be a string or null`);
+		if (snippet !== undefined && snippet !== null && typeof snippet !== "string") {
+			throw invalidResponse(`expected organic_results[${index}].snippet to be a string or null`);
 		}
 		results.push({
-			title: typeof title === "string" && title.trim().length > 0 ? title : url,
-			url,
-			snippet: typeof description === "string" ? description : "",
+			title: typeof title === "string" && title.trim().length > 0 ? title : link,
+			url: link,
+			snippet: typeof snippet === "string" ? snippet : "",
 		});
 	}
 
@@ -140,7 +153,7 @@ function buildAnswer(results: SearchResponse["results"]): string {
 		.join("\n\n");
 }
 
-export async function searchWithXCrawl(query: string, options: XCrawlSearchOptions = {}): Promise<SearchResponse> {
+export async function searchWithXCrawl(query: string, options: SearchOptions = {}): Promise<SearchResponse> {
 	const apiKey = await getApiKey(options.signal);
 	if (!apiKey) {
 		throw new Error(
@@ -148,11 +161,11 @@ export async function searchWithXCrawl(query: string, options: XCrawlSearchOptio
 			" or export XCRAWL_API_KEY. Get one at https://dash.xcrawl.com/",
 		);
 	}
-	const numResults = normalizeCount(options.numResults);
-	const body: Record<string, unknown> = { query, limit: numResults };
-	if (typeof options.location === "string" && options.location.trim()) body.location = options.location.trim();
-	if (typeof options.language === "string" && options.language.trim()) body.language = options.language.trim();
+	const body = { engine: "google_search", q: query };
 	const activityId = activityMonitor.logStart({ type: "api", query });
+	// Distinguishing caller cancellation from a provider-side timeout lets the
+	// timeout surface as a retriable failure instead of looking like an abort.
+	const timeoutSignal = AbortSignal.timeout(SEARCH_TIMEOUT_MS);
 	let response: Response;
 
 	try {
@@ -164,18 +177,29 @@ export async function searchWithXCrawl(query: string, options: XCrawlSearchOptio
 			},
 			body: JSON.stringify(body),
 			signal: options.signal
-				? AbortSignal.any([AbortSignal.timeout(SEARCH_TIMEOUT_MS), options.signal])
-				: AbortSignal.timeout(SEARCH_TIMEOUT_MS),
+				? AbortSignal.any([timeoutSignal, options.signal])
+				: timeoutSignal,
 		});
 	} catch (err) {
 		const message = errorMessage(err);
-		const redactedMessage = redactCredential(message, apiKey);
-		if (redactedMessage.toLowerCase().includes("abort")) activityMonitor.logComplete(activityId, 0);
-		else activityMonitor.logError(activityId, redactedMessage);
-		if (redactedMessage === message) throw err;
-		const redactedError = new Error(redactedMessage);
-		if (err instanceof Error) redactedError.name = err.name;
-		throw redactedError;
+		if (options.signal?.aborted) {
+			activityMonitor.logComplete(activityId, 0);
+			throw err;
+		}
+		// AbortSignal.timeout rejects with a TimeoutError; treat either that
+		// shape or our own fired timer as a retriable provider-side timeout so
+		// routing fallback still applies.
+		const providerTimeout = timeoutSignal.aborted || (err instanceof Error && err.name === "TimeoutError");
+		let outgoing: Error;
+		if (providerTimeout) {
+			outgoing = new Error(`XCrawl search request timed out after ${Math.round(SEARCH_TIMEOUT_MS / 1000)}s`);
+		} else {
+			const redactedMessage = redactCredential(message, apiKey);
+			outgoing = redactedMessage === message && err instanceof Error ? err : new Error(redactedMessage);
+			if (err instanceof Error && outgoing.name === "Error") outgoing.name = err.name;
+		}
+		activityMonitor.logError(activityId, redactCredential(errorMessage(outgoing), apiKey));
+		throw outgoing;
 	}
 
 	if (!response.ok) {
@@ -200,9 +224,10 @@ export async function searchWithXCrawl(query: string, options: XCrawlSearchOptio
 		throw invalidResponse(`response body is not valid JSON: ${errorMessage(err)}`);
 	}
 	const { results } = parseResponse(payload);
+	const filtered = options.domainFilter?.length ? applyDomainFilter(results, options.domainFilter) : results;
 
 	return {
-		answer: buildAnswer(results),
-		results,
+		answer: buildAnswer(filtered),
+		results: filtered,
 	};
 }

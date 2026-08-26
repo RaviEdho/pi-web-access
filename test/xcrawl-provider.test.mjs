@@ -29,45 +29,26 @@ function runChild(script, env = {}) {
 	});
 }
 
-const sampleEnvelope = {
-	search_id: "01KKE8BNMEKRHJB9GEWXPYQ8E1",
-	endpoint: "search",
-	version: "dca0d4b3bff035e4",
-	status: "completed",
-	query: "example query",
-	data: {
-		credits_detail: { base_cost: 2, traffic_cost: 0, json_extract_cost: 0 },
-		credits_used: 2,
-		data: [
-			{ description: "First result snippet.", position: 1, title: "First result", url: "https://example.com/first" },
-			{ description: "Second result snippet with no title.", position: 2, title: null, url: "https://example.com/second" },
+function serpEnvelope(overrides = {}) {
+	return {
+		search_metadata: { id: "01KMMKX1EC62VPCD7FW8YZ8QVS", status: "completed", total_time_taken: 2, ...(overrides.metadata ?? {}) },
+		search_parameters: { engine: "google_search", q: "example query" },
+		total_credits_used: 1,
+		organic_results: overrides.organic ?? [
+			{ position: 1, title: "First result", link: "https://www.example.com/first", snippet: "First result snippet." },
+			{ position: 2, title: null, link: "https://sub.other-domain.org/second", snippet: "Second result snippet with no title." },
 		],
-		endedAt: "2026-03-11T10:51:27.278040Z",
-		endpoint: "search",
-		job_id: "01KKE8BNMEKRHJB9GEWXPYQ8E1",
-		query: "example query",
-		request_id: "req-1",
-		search_id: "01KKE8BNMEKRHJB9GEWXPYQ8E1",
-		site_id: 26,
-		startedAt: "2026-03-11T10:51:24.710600Z",
-		status: "success",
-		success_num: 2,
-		uid: "42",
-		username: "someone",
-		version: "",
-	},
-	started_at: "",
-	ended_at: "",
-	total_credits_used: 2,
-};
+		...(overrides.extra ?? {}),
+	};
+}
 
-test("XCrawl sends Bearer credentials, normalizes null titles, and supports explicit routing", async () => {
+test("XCrawl sends Bearer credentials to the SERP endpoint, normalizes null titles, and supports explicit routing", async () => {
 	const home = await createHome({ xcrawlApiKey: "xc-test-key" });
 	const child = runChild(`
 		const calls = [];
 		globalThis.fetch = async (url, init) => {
 			calls.push({ url: String(url), headers: Object.fromEntries(new Headers(init.headers)), body: JSON.parse(init.body) });
-			return new Response(JSON.stringify(${JSON.stringify(sampleEnvelope)}), { status: 200 });
+			return new Response(JSON.stringify(${JSON.stringify(serpEnvelope())}), { status: 200 });
 		};
 		const { searchWithXCrawl } = await import(${JSON.stringify(xcrawlModuleUrl)});
 		const direct = await searchWithXCrawl("research", { numResults: 7 });
@@ -77,31 +58,33 @@ test("XCrawl sends Bearer credentials, normalizes null titles, and supports expl
 	`, { PI_CODING_AGENT_DIR: home });
 	assert.equal(child.status, 0, child.stderr);
 	const output = JSON.parse(child.stdout.trim());
-	assert.equal(output.calls[0].url, "https://run.xcrawl.com/v1/search");
+	assert.equal(output.calls[0].url, "https://run.xcrawl.com/v1/serp");
 	assert.equal(output.calls[0].headers["authorization"], "Bearer xc-test-key");
-	assert.deepEqual(output.calls[0].body, { query: "research", limit: 7 });
+	assert.deepEqual(output.calls[0].body, { engine: "google_search", q: "research" });
 	assert.equal(output.direct.results.length, 2);
 	assert.equal(output.direct.results[0].title, "First result");
-	assert.equal(output.direct.results[1].title, "https://example.com/second");
+	assert.equal(output.direct.results[0].url, "https://www.example.com/first");
+	assert.equal(output.direct.results[1].title, "https://sub.other-domain.org/second");
 	assert.equal(output.direct.results[0].snippet, "First result snippet.");
 	assert.equal(output.routedProvider, "xcrawl");
 });
 
-test("XCrawl forwards optional location and language and bounds limit to the documented maximum", async () => {
+test("XCrawl applies the shared domain filter client-side", async () => {
 	const home = await createHome({ xcrawlApiKey: "xc-test-key" });
 	const child = runChild(`
-		const calls = [];
-		globalThis.fetch = async (url, init) => {
-			calls.push({ body: JSON.parse(init.body) });
-			return new Response(JSON.stringify(${JSON.stringify(sampleEnvelope)}), { status: 200 });
-		};
+		globalThis.fetch = async () => new Response(JSON.stringify(${JSON.stringify(serpEnvelope())}), { status: 200 });
 		const { searchWithXCrawl } = await import(${JSON.stringify(xcrawlModuleUrl)});
-		await searchWithXCrawl("localized", { numResults: 500, location: "US", language: "en" });
-		console.log(JSON.stringify({ calls }));
+		const included = await searchWithXCrawl("q", { domainFilter: ["example.com"] });
+		const excluded = await searchWithXCrawl("q", { domainFilter: ["-example.com"] });
+		console.log(JSON.stringify({
+			includedUrls: included.results.map((r) => r.url),
+			excludedUrls: excluded.results.map((r) => r.url),
+		}));
 	`, { PI_CODING_AGENT_DIR: home });
 	assert.equal(child.status, 0, child.stderr);
 	const output = JSON.parse(child.stdout.trim());
-	assert.deepEqual(output.calls[0].body, { query: "localized", limit: 100, location: "US", language: "en" });
+	assert.deepEqual(output.includedUrls, ["https://www.example.com/first"]);
+	assert.deepEqual(output.excludedUrls, ["https://sub.other-domain.org/second"]);
 });
 
 test("XCrawl surfaces documented API errors without leaking the key", async () => {
@@ -131,7 +114,7 @@ test("XCrawl surfaces documented API errors without leaking the key", async () =
 test("XCrawl rejects unexpected envelope shapes instead of returning empty answers silently", async () => {
 	const home = await createHome({ xcrawlApiKey: "xc-test-key" });
 	const child = runChild(`
-		globalThis.fetch = async () => new Response(JSON.stringify({ status: "failed", data: { status: "error", data: [] } }), { status: 200 });
+		globalThis.fetch = async () => new Response(JSON.stringify({ search_metadata: { status: "failed" } }), { status: 200 });
 		const { searchWithXCrawl } = await import(${JSON.stringify(xcrawlModuleUrl)});
 		try {
 			await searchWithXCrawl("shape");
@@ -144,6 +127,36 @@ test("XCrawl rejects unexpected envelope shapes instead of returning empty answe
 	const output = JSON.parse(child.stdout.trim());
 	assert.equal(output.failed, true);
 	assert.match(output.message, /invalid response/);
+});
+
+test("XCrawl provider timeout is a retriable failure, not caller cancellation", async () => {
+	const home = await createHome({ xcrawlApiKey: "xc-test-key" });
+	const child = runChild(`
+		globalThis.fetch = async () => {
+			// Simulate the provider-side AbortSignal.timeout firing.
+			const e = new Error("The operation was aborted due to timeout");
+			e.name = "TimeoutError";
+			throw e;
+		};
+		const { classifyProviderError } = await import(${JSON.stringify(new URL("../gemini-search.ts", import.meta.url).href)}).catch(() => ({}));
+		const { searchWithXCrawl } = await import(${JSON.stringify(xcrawlModuleUrl)});
+		try {
+			await searchWithXCrawl("slow");
+			console.log(JSON.stringify({ failed: false }));
+		} catch (err) {
+			let kind = "";
+			try {
+				const { SearchProviderError } = await import(${JSON.stringify(xcrawlModuleUrl)}).then(() => ({}));
+			} catch {}
+			console.log(JSON.stringify({ failed: true, message: String(err.message), name: err.name }));
+		}
+	`, { PI_CODING_AGENT_DIR: home });
+	assert.equal(child.status, 0, child.stderr);
+	const output = JSON.parse(child.stdout.trim());
+	assert.equal(output.failed, true);
+	// Must read as a timeout, not carry the "abort" marker that routing treats as cancellation.
+	assert.match(output.message, /timed out after 60s/);
+	assert.ok(!/abort/i.test(output.message));
 });
 
 test("XCrawl is unavailable without credentials and never part of auto fallback", async () => {

@@ -628,7 +628,7 @@ AnySearch is an explicit-only provider: it is never included in zero-config `aut
 
 ### XCrawl
 
-XCrawl is an explicit-only provider: it is never included in zero-config `auto` fallback or in `provider: "all"`, but it can be selected with `provider: "xcrawl"`, configured as the named provider, or placed in `searchRouting`. It requires `xcrawlApiKey` / `XCRAWL_API_KEY` credentials ([dashboard](https://dash.xcrawl.com/)). Requests send `{ query, limit }` plus optional `location` and `language`; `recencyFilter`, `domainFilter`, and `includeContent` do not add API request parameters. XCrawl search runs as a server-side job that can take tens of seconds, so requests allow up to 90 seconds. Results with a null title fall back to the result URL; result items expose their SERP `description` as the snippet.
+XCrawl is an explicit-only provider: it is never included in zero-config `auto` fallback or in `provider: "all"`, but it can be selected with `provider: "xcrawl"`, configured as the named provider, or placed in `searchRouting`. It requires `xcrawlApiKey` / `XCRAWL_API_KEY` credentials ([dashboard](https://dash.xcrawl.com/)). Requests send `{ engine: "google_search", q }` to the SERP endpoint; `recencyFilter`, `domainFilter`, and `includeContent` do not add API request parameters, and the shared include/exclude `domainFilter` is applied client-side. A provider-side timeout surfaces as a retriable failure rather than caller cancellation. Results with a null title fall back to the result URL; result items expose their SERP snippet as usual.
 
 ### xAI (Grok)
 
