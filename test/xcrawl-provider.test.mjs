@@ -205,6 +205,31 @@ test("XCrawl provider timeout is a retriable failure, not caller cancellation", 
 	assert.ok(!/abort/i.test(output.message));
 });
 
+test("XCrawl preserves caller cancellation when a timeout rejection races with abort", async () => {
+	const home = await createHome({ xcrawlApiKey: "xc-test-key" });
+	const child = runChild(`
+		const controller = new AbortController();
+		globalThis.fetch = async () => {
+			controller.abort();
+			const error = new Error("The operation was aborted due to timeout");
+			error.name = "TimeoutError";
+			throw error;
+		};
+		const { searchWithXCrawl } = await import(${JSON.stringify(xcrawlModuleUrl)});
+		try {
+			await searchWithXCrawl("cancel", { signal: controller.signal });
+			console.log(JSON.stringify({ failed: false }));
+		} catch (error) {
+			console.log(JSON.stringify({ failed: true, message: String(error.message), name: error.name }));
+		}
+	`, { PI_CODING_AGENT_DIR: home });
+	assert.equal(child.status, 0, child.stderr);
+	const output = JSON.parse(child.stdout.trim());
+	assert.equal(output.failed, true);
+	assert.match(output.message, /abort/i);
+	assert.ok(!/timed out after 60s/i.test(output.message));
+});
+
 test("XCrawl is unavailable without credentials and never part of auto fallback", async () => {
 	const home = await createHome({});
 	const child = runChild(`

@@ -206,7 +206,7 @@ export async function searchWithXCrawl(query: string, options: SearchOptions = {
 		const message = errorMessage(err);
 		if (options.signal?.aborted) {
 			activityMonitor.logComplete(activityId, 0);
-			throw err;
+			throw new Error("Aborted");
 		}
 		// AbortSignal.timeout rejects with a TimeoutError; treat either that
 		// shape or our own fired timer as a retriable provider-side timeout so
