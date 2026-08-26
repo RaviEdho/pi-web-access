@@ -81,22 +81,41 @@ function hostnameOf(url: string): string {
 	}
 }
 
-function hostMatches(host: string, domain: string): boolean {
-	const normalized = domain.toLowerCase().replace(/^www\./, "");
-	return host === normalized || host.endsWith(`.${normalized}`);
+// Normalize a shared domainFilter entry the same way Valyu does before
+// matching: trim, lowercase, strip URL/paths/ports, validate the shape.
+function normalizeDomain(value: string): string | null {
+	let input = value.trim().toLowerCase();
+	if (!input) return null;
+	if (input.startsWith("-")) input = input.slice(1).trim();
+	if (!input) return null;
+	try {
+		const parsed = input.includes("://") ? new URL(input) : new URL(`https://${input}`);
+		input = parsed.hostname;
+	} catch {
+		input = input.split("/")[0]?.split(":")[0] ?? "";
+	}
+	input = input.replace(/^\.+|\.+$/g, "").replace(/^www\./, "");
+	return /^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$/i.test(input) ? input : null;
 }
 
 // XCrawl's SERP API has no server-side domain filter, so apply the shared
 // include/exclude domainFilter locally instead of returning off-domain results.
 function applyDomainFilter(results: SearchResponse["results"], domainFilter: NonNullable<SearchOptions["domainFilter"]>): SearchResponse["results"] {
-	const includes = domainFilter.filter((d) => !d.startsWith("-"));
-	const excludes = domainFilter.filter((d) => d.startsWith("-")).map((d) => d.slice(1));
+	const includes: string[] = [];
+	const excludes: string[] = [];
+	for (const raw of domainFilter) {
+		const normalized = normalizeDomain(raw);
+		if (!normalized) continue;
+		if (raw.trim().startsWith("-")) excludes.push(normalized);
+		else includes.push(normalized);
+	}
 	if (!includes.length && !excludes.length) return results;
 	return results.filter((result) => {
-		const host = hostnameOf(result.url);
+		const host = hostnameOf(result.url).replace(/^www\./, "");
 		if (!host) return false;
-		if (excludes.some((domain) => hostMatches(host, domain))) return false;
-		if (includes.length && !includes.some((domain) => hostMatches(host, domain))) return false;
+		const matches = (domain: string) => host === domain || host.endsWith(`.${domain}`);
+		if (excludes.some(matches)) return false;
+		if (includes.length && !includes.some(matches)) return false;
 		return true;
 	});
 }

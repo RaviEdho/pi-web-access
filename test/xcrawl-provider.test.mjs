@@ -76,15 +76,18 @@ test("XCrawl applies the shared domain filter client-side", async () => {
 		const { searchWithXCrawl } = await import(${JSON.stringify(xcrawlModuleUrl)});
 		const included = await searchWithXCrawl("q", { domainFilter: ["example.com"] });
 		const excluded = await searchWithXCrawl("q", { domainFilter: ["-example.com"] });
+		const fuzzyForms = await searchWithXCrawl("q", { domainFilter: [" https://www.Example.COM/path "] });
 		console.log(JSON.stringify({
 			includedUrls: included.results.map((r) => r.url),
 			excludedUrls: excluded.results.map((r) => r.url),
+			fuzzyUrls: fuzzyForms.results.map((r) => r.url),
 		}));
 	`, { PI_CODING_AGENT_DIR: home });
 	assert.equal(child.status, 0, child.stderr);
 	const output = JSON.parse(child.stdout.trim());
 	assert.deepEqual(output.includedUrls, ["https://www.example.com/first"]);
 	assert.deepEqual(output.excludedUrls, ["https://sub.other-domain.org/second"]);
+	assert.deepEqual(output.fuzzyUrls, ["https://www.example.com/first"]);
 });
 
 test("XCrawl surfaces documented API errors without leaking the key", async () => {
