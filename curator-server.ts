@@ -18,7 +18,7 @@ export interface CuratorServerOptions {
 	queries: string[];
 	sessionToken: string;
 	timeout: number;
-	availableProviders: { all: boolean; openai: boolean; brave: boolean; parallel: boolean; "parallel-mcp": boolean; tinyfish: boolean; search1api: boolean; searchinfinity: boolean; querit: boolean; tavily: boolean; firecrawl: boolean; jina: boolean; serpdive: boolean; kagi: boolean; bocha: boolean; ollama: boolean; searxng: boolean; duckduckgo: boolean; perplexity: boolean; exa: boolean; gemini: boolean; kimi: boolean; anysearch: boolean; xai: boolean; brightdata: boolean; serpbase: boolean; serper: boolean; valyu: boolean };
+	availableProviders: { all: boolean; openai: boolean; brave: boolean; parallel: boolean; "parallel-mcp": boolean; tinyfish: boolean; search1api: boolean; searchinfinity: boolean; querit: boolean; tavily: boolean; firecrawl: boolean; jina: boolean; serpdive: boolean; kagi: boolean; bocha: boolean; ollama: boolean; searxng: boolean; duckduckgo: boolean; perplexity: boolean; exa: boolean; gemini: boolean; kimi: boolean; anysearch: boolean; xcrawl: boolean; xai: boolean; brightdata: boolean; serpbase: boolean; serper: boolean; valyu: boolean };
 	defaultProvider: string;
 	searchProvider: string;
 	summaryModels: Array<{ value: string; label: string }>;
@@ -294,6 +294,7 @@ export function startCuratorServer(
 		if (provider === "gemini") return availableProviders.gemini;
 		if (provider === "kimi") return availableProviders.kimi;
 		if (provider === "anysearch") return availableProviders.anysearch;
+		if (provider === "xcrawl") return availableProviders.xcrawl;
 		if (provider === "xai") return availableProviders.xai;
 		if (provider === "brightdata") return availableProviders.brightdata;
 		if (provider === "serpbase") return availableProviders.serpbase;

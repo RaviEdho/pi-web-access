@@ -8,7 +8,7 @@ function safeInlineJSON(data: unknown): string {
 }
 
 function buildProviderButtons(
-	available: { all: boolean; openai: boolean; brave: boolean; parallel: boolean; "parallel-mcp": boolean; tinyfish: boolean; search1api: boolean; searchinfinity: boolean; querit: boolean; tavily: boolean; firecrawl: boolean; jina: boolean; serpdive: boolean; kagi: boolean; bocha: boolean; ollama: boolean; searxng: boolean; duckduckgo: boolean; perplexity: boolean; exa: boolean; gemini: boolean; kimi: boolean; anysearch: boolean; xai: boolean; brightdata: boolean; serpbase: boolean; serper: boolean; valyu: boolean },
+	available: { all: boolean; openai: boolean; brave: boolean; parallel: boolean; "parallel-mcp": boolean; tinyfish: boolean; search1api: boolean; searchinfinity: boolean; querit: boolean; tavily: boolean; firecrawl: boolean; jina: boolean; serpdive: boolean; kagi: boolean; bocha: boolean; ollama: boolean; searxng: boolean; duckduckgo: boolean; perplexity: boolean; exa: boolean; gemini: boolean; kimi: boolean; anysearch: boolean; xcrawl: boolean; xai: boolean; brightdata: boolean; serpbase: boolean; serper: boolean; valyu: boolean },
 	selected: string,
 	hasInitialQueries: boolean,
 ): string {
@@ -36,6 +36,7 @@ function buildProviderButtons(
 		{ value: "gemini", label: "Gemini", available: available.gemini },
 		{ value: "kimi", label: "Kimi", available: available.kimi },
 		{ value: "anysearch", label: "AnySearch", available: available.anysearch },
+		{ value: "xcrawl", label: "XCrawl", available: available.xcrawl },
 		{ value: "xai", label: "xAI", available: available.xai },
 		{ value: "brightdata", label: "Bright Data", available: available.brightdata },
 		{ value: "serpbase", label: "SerpBase", available: available.serpbase },
@@ -59,7 +60,7 @@ export function generateCuratorPage(
 	queries: string[],
 	sessionToken: string,
 	timeout: number,
-	availableProviders: { all: boolean; openai: boolean; brave: boolean; parallel: boolean; "parallel-mcp": boolean; tinyfish: boolean; search1api: boolean; searchinfinity: boolean; querit: boolean; tavily: boolean; firecrawl: boolean; jina: boolean; serpdive: boolean; kagi: boolean; bocha: boolean; ollama: boolean; searxng: boolean; duckduckgo: boolean; perplexity: boolean; exa: boolean; gemini: boolean; kimi: boolean; anysearch: boolean; xai: boolean; brightdata: boolean; serpbase: boolean; serper: boolean; valyu: boolean },
+	availableProviders: { all: boolean; openai: boolean; brave: boolean; parallel: boolean; "parallel-mcp": boolean; tinyfish: boolean; search1api: boolean; searchinfinity: boolean; querit: boolean; tavily: boolean; firecrawl: boolean; jina: boolean; serpdive: boolean; kagi: boolean; bocha: boolean; ollama: boolean; searxng: boolean; duckduckgo: boolean; perplexity: boolean; exa: boolean; gemini: boolean; kimi: boolean; anysearch: boolean; xcrawl: boolean; xai: boolean; brightdata: boolean; serpbase: boolean; serper: boolean; valyu: boolean },
 	defaultProvider: string,
 	searchProvider: string,
 	summaryModels: Array<{ value: string; label: string }>,
@@ -676,6 +677,11 @@ main {
   color: #f9c74f;
   background: rgba(249, 199, 79, 0.14);
   border-color: rgba(249, 199, 79, 0.3);
+}
+.provider-tag.provider-xcrawl {
+  color: #7dd3ae;
+  background: rgba(125, 211, 174, 0.14);
+  border-color: rgba(125, 211, 174, 0.3);
 }
 .provider-tag.provider-xai {
   color: #c4b5fd;
@@ -1460,7 +1466,7 @@ const SCRIPT = `(function() {
   var token = DATA.sessionToken;
   var timeoutSec = DATA.timeout;
   var queries = Array.isArray(DATA.queries) ? DATA.queries : [];
-  var providers = ["all", "openai", "exa", "brave", "parallel", "parallel-mcp", "tinyfish", "search1api", "searchinfinity", "querit", "tavily", "firecrawl", "jina", "serpdive", "kagi", "bocha", "ollama", "searxng", "duckduckgo", "perplexity", "gemini", "kimi", "anysearch", "xai", "brightdata", "serpbase", "serper", "valyu"];
+  var providers = ["all", "openai", "exa", "brave", "parallel", "parallel-mcp", "tinyfish", "search1api", "searchinfinity", "querit", "tavily", "firecrawl", "jina", "serpdive", "kagi", "bocha", "ollama", "searxng", "duckduckgo", "perplexity", "gemini", "kimi", "anysearch", "xcrawl", "xai", "brightdata", "serpbase", "serper", "valyu"];
   var availProviders = DATA.availableProviders && typeof DATA.availableProviders === "object" ? DATA.availableProviders : {};
   var workflow = "summary-review";
   var initialDefaultProvider = typeof DATA.defaultProvider === "string" ? DATA.defaultProvider : "exa";
@@ -1685,6 +1691,7 @@ const SCRIPT = `(function() {
     if (provider === "gemini") return "Gemini";
     if (provider === "kimi") return "Kimi";
     if (provider === "anysearch") return "AnySearch";
+    if (provider === "xcrawl") return "XCrawl";
     if (provider === "xai") return "xAI";
     if (provider === "brightdata") return "Bright Data";
     if (provider === "serpbase") return "SerpBase";
