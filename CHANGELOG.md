@@ -4,19 +4,27 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-08-28
+
+### Highlights
+- `web_search` now includes XCrawl as an explicit search provider.
+- XCrawl results now produce safer clickable links, including relative redirect links from the API.
+- Local models can send multiple web-search queries as a JSON string and still get separate searches.
+- HTML fallback extraction is quieter and more accurate when Defuddle cannot process a page.
+
 ### Added
 
-- XCrawl explicit-only search provider (`provider: "xcrawl"`) with `xcrawlApiKey` / `XCRAWL_API_KEY` credentials, built on the `/v1/serp` Google Search endpoint, client-side domainFilter application, null-title fallback to result URL, and provider-timeout errors that stay retriable. Thanks to [@zeroicey](https://github.com/zeroicey) for #312 and #313.
+- Added XCrawl as an explicit-only search provider (`provider: "xcrawl"`) with `xcrawlApiKey` / `XCRAWL_API_KEY` credentials, client-side domain filtering, fallback titles, and retriable provider-timeout errors. Thanks to [@zeroicey](https://github.com/zeroicey) for #312 and #313.
 
 ### Changed
 
-- Cleaned the unreleased XCrawl provider docs, parser shape, provider availability types, and focused tests.
+- Refined the XCrawl provider docs, parser shape, availability metadata, and focused tests.
 
 ### Fixed
 
 - Expanded JSON-array strings supplied in the singular `web_search` `query` field into independent searches, with a clear no-query error for empty arrays. Thanks to [@alex-rs](https://github.com/alex-rs) for #317 and [@zeroicey](https://github.com/zeroicey) for PR #319.
 - Kept Defuddle selector-processing failures out of the Pi console and stopped treating the raw page body as a successful extraction. Thanks to [@riabiy](https://github.com/riabiy) for #315.
-- Resolved API-origin-relative XCrawl result links to absolute URLs so emitted source links remain clickable. Thanks to [@zeroicey](https://github.com/zeroicey) for #318.
+- Resolved API-origin-relative XCrawl result links to absolute URLs and rejected blank result links instead of emitting fabricated source URLs. Thanks to [@zeroicey](https://github.com/zeroicey) for #318.
 
 ## [0.25.0] - 2026-08-25
 
