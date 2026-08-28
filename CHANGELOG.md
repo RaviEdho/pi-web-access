@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-08-28
+
+### Highlights
+
+- `fetch_content` now lets you tune direct HTTP and Jina Reader timeouts from config.
+- Answer mode can use a configured default model while still allowing per-call overrides.
+- HTML fallback parsing is quieter for pages with relative canonical links.
+- GitHub repository fetching is safer when more than one Pi process is running.
+
 ### Added
 
 - Added opt-in `fetch.timeout` configuration in seconds for the direct HTTP and Jina Reader `fetch_content` paths, with per-call timeout overrides taking precedence. Thanks to [@linuxtextadventurer](https://github.com/linuxtextadventurer) for PR #327.
@@ -13,6 +22,7 @@ All notable changes to this project will be documented in this file.
 
 - Set the Defuddle fallback document URL before parsing pages with relative canonical links, preventing `ERR_INVALID_URL` warnings. Thanks to [@bin115885](https://github.com/bin115885) for issue #322.
 - Isolated GitHub clone workdirs per extension runtime so cleanup in one process cannot delete another process's clone. Thanks to [@MDGChamomile](https://github.com/MDGChamomile) for PR #323.
+
 
 ## [0.26.0] - 2026-08-28
 
