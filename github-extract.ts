@@ -1,4 +1,4 @@
-import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, realpathSync, rmSync, statSync, unlinkSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, realpathSync, rmSync, statSync, unlinkSync } from "node:fs";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import { basename, dirname, extname, join, resolve as resolvePath, sep as pathSep } from "node:path";
@@ -59,6 +59,7 @@ interface GitHubCloneConfig {
 const cloneCache = new Map<string, CachedClone>();
 
 let cachedConfig: GitHubCloneConfig | null = null;
+let cloneRuntime: { parentPath: string; rootPath: string } | null = null;
 
 function normalizeEnabled(value: unknown, fallback: boolean): boolean {
 	return typeof value === "boolean" ? value : fallback;
@@ -189,10 +190,48 @@ function cacheKey(owner: string, repo: string, ref?: string): string {
 	return ref ? `${owner}/${repo}@${ref}` : `${owner}/${repo}`;
 }
 
+function removeCloneRuntime(parentPath: string, runtimePath: string): void {
+	const normalizedParentPath = resolvePath(parentPath);
+	const normalizedRuntimePath = resolvePath(runtimePath);
+	if (dirname(normalizedRuntimePath) !== normalizedParentPath || !basename(normalizedRuntimePath).startsWith("runtime-")) return;
+
+	try {
+		const entry = lstatSync(normalizedRuntimePath);
+		if (entry.isSymbolicLink()) unlinkSync(normalizedRuntimePath);
+		else rmSync(normalizedRuntimePath, { recursive: true, force: true });
+	} catch {
+		// The runtime directory may already have been removed externally.
+	}
+}
+
+function getCloneRuntimeRoot(config: GitHubCloneConfig): string | null {
+	if (cloneRuntime) return cloneRuntime.rootPath;
+
+	let parentPath: string | null = null;
+	let runtimePath: string | null = null;
+	try {
+		const configuredPath = resolvePath(config.clonePath);
+		mkdirSync(configuredPath, { recursive: true });
+		parentPath = realpathSync(configuredPath);
+		runtimePath = mkdtempSync(join(parentPath, "runtime-"));
+		chmodSync(runtimePath, 0o700);
+		const rootPath = realpathSync(runtimePath);
+		if (dirname(rootPath) !== parentPath) {
+			removeCloneRuntime(parentPath, runtimePath);
+			return null;
+		}
+		cloneRuntime = { parentPath, rootPath };
+		return rootPath;
+	} catch {
+		if (parentPath && runtimePath) removeCloneRuntime(parentPath, runtimePath);
+		return null;
+	}
+}
+
 function cloneDestination(config: GitHubCloneConfig, owner: string, repo: string, ref?: string): CloneDestination | null {
 	try {
-		mkdirSync(resolvePath(config.clonePath), { recursive: true });
-		const rootPath = realpathSync(resolvePath(config.clonePath));
+		const rootPath = getCloneRuntimeRoot(config);
+		if (!rootPath) return null;
 		const digest = createHash("sha256").update(JSON.stringify([owner, repo, ref ?? null])).digest("hex");
 		const localPath = resolvePath(rootPath, digest);
 		if (dirname(localPath) !== rootPath) return null;
@@ -742,5 +781,10 @@ export function clearCloneCache(): void {
 		removeCloneDestination(entry.destination);
 	}
 	cloneCache.clear();
+
+	if (cloneRuntime) {
+		removeCloneRuntime(cloneRuntime.parentPath, cloneRuntime.rootPath);
+	}
+	cloneRuntime = null;
 	cachedConfig = null;
 }
