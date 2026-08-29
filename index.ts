@@ -240,7 +240,8 @@ function searchProviderSchema(description: string) {
 function isToolEnabled(config: WebSearchConfig, key: keyof ToolNames): boolean {
 	const override = config.tools?.[key]?.enabled;
 	if (typeof override === "boolean") return override;
-	return key !== "webSearch" && key !== "sourceCheck" || config.webSearch?.enabled !== false;
+	if (key === "sourceCheck") return false; // fork default: disabled unless explicitly enabled in web-search.json
+	return key !== "webSearch" || config.webSearch?.enabled !== false;
 }
 
 function isCommandEnabled(config: WebSearchConfig, name: "websearch" | "curator" | "search" | "google-account"): boolean {
