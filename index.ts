@@ -1751,7 +1751,7 @@ export default function (pi: ExtensionAPI) {
 		name: toolNames.webSearch,
 		label: "Web Search",
 		description:
-			`Search the web; returns an AI-synthesized answer with citations. Omit provider to use the configured default, pass one from the provider enum, or "all" to search every eligible provider (Parallel MCP, DuckDuckGo, Kimi, AnySearch, XCrawl, Valyu, xAI, Bright Data, SerpBase, and Serper stay explicit-only). Prefer queries (2-4 varied angles) for research — each gets its own answer. includeContent fetches and stores full pages for later get_search_content reads. workflow defaults to auto-summary (model-generated summary); "none" returns raw results; the browser curator is disabled in this fork.`,
+			`Search the web; returns an AI-synthesized answer with citations. Omit provider to use the configured default, pass one from the provider enum, or "all" to search every eligible provider (Parallel MCP, DuckDuckGo, Kimi, AnySearch, XCrawl, Valyu, xAI, Bright Data, SerpBase, and Serper stay explicit-only). Prefer queries (2-4 varied angles) for research — each gets its own answer. includeContent fetches and stores full pages for later get_search_content reads. workflow defaults to auto-summary (model-generated summary); "none" returns raw results.`,
 		promptSnippet:
 			"Web research: prefer {queries:[...]} with 2-4 varied angles over {query}. Omit {provider} to use the configured default.",
 		parameters: Type.Object({
@@ -1765,8 +1765,8 @@ export default function (pi: ExtensionAPI) {
 			domainFilter: Type.Optional(Type.Array(Type.String(), { description: "Limit to domains (prefix with - to exclude)" })),
 			provider: Type.Optional(searchProviderSchema("Provider, provider list, \"all\", or omit for the configured default")),
 			workflow: Type.Optional(
-				StringEnum(["none", "summary-review", "auto-summary"], {
-					description: "none = raw results; auto-summary = generated summary (default); summary-review is treated as auto-summary (curator disabled)",
+				StringEnum(["none", "auto-summary"], {
+					description: "none = raw results; auto-summary = generated summary (default)",
 				}),
 			),
 			proxy: Type.Optional(Type.String({
