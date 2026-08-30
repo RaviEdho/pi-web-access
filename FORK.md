@@ -3,7 +3,7 @@
 This repository is **RaviEdho/pi-web-access**, a fork of
 **[nicobailon/pi-web-access](https://github.com/nicobailon/pi-web-access)** (upstream).
 
-It ships **three intentional changes that must survive every upstream sync**.
+It ships **four intentional changes that must survive every upstream sync**.
 Each is small and localized, mostly in `index.ts`. Upstream does not (and should
 not) receive them — treat upstream's versions of these lines as wrong for
 this fork.
@@ -83,7 +83,6 @@ function resolveWorkflow(input: unknown, hasUI: boolean): WebSearchWorkflow {
 ```
 
 ## Delta 2 — slimmed tool descriptions and parameter schemas
-
 Commit: `5a574ed`
 
 Tool descriptions, prompt snippets, and per-field parameter descriptions for
@@ -127,6 +126,23 @@ conflict replays automatically in future merges.
 4. **Upstream removed or restructured something we edited (e.g. moved the whole description block)** → re-apply the fork change on top of the new structure; the anchors below will tell you if it survived.
 5. **Never** resolve by force-push, rebase, or `git reset` on `main` — merge history keeps future conflicts small.
 
+## Delta 4 — preferred summary model is OpenCode GO's DeepSeek V4 Flash
+
+The `preferredDefaults` list in `loadSummaryModelChoices()` (used for curator
+summary drafts and `auto-summary` mode) leads with
+`{ provider: "opencode-go", id: "deepseek-v4-flash" }` (OpenCode GO's
+DeepSeek V4 Flash, ~1M context, $0.22/$0.66 per M tokens). Machines without
+`opencode-go` in the model registry fall through to the remaining defaults
+(haiku-4-5, gpt-5-mini, gemini-3.6-flash, …). An explicit `summaryModel` in
+`web-search.json` still overrides everything.
+
+Fork marker (keep this line in `preferredDefaults`):
+
+```ts
+// fork: OpenCode GO's DeepSeek V4 Flash is the preferred summary model
+{ provider: "opencode-go", id: "deepseek-v4-flash" },
+```
+
 ## Verification
 
 The sync script checks these anchors; run them manually after any hand-merge
@@ -138,8 +154,9 @@ grep -n 'Search the web; returns an AI-synthesized' index.ts     # Delta 2: web_
 grep -n 'Multiple queries, each returns its own answer' index.ts # Delta 2: queries field
 grep -n 'Video timestamp for frame extraction' index.ts          # Delta 2: timestamp field
 grep -n 'summary-review (browser curator) disabled' index.ts     # Delta 3: auto-summary default
+grep -n "OpenCode GO's DeepSeek V4 Flash" index.ts               # Delta 4: preferred summary model
 ```
 
-All five must match. If any do not, re-apply the corresponding delta
+All six must match. If any do not, re-apply the corresponding delta
 (`git cherry-pick cb01cc8 5a574ed` works when the commits are still in
 history) and re-run verification before committing or pushing.

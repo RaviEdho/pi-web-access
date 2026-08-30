@@ -1282,6 +1282,8 @@ export default function (pi: ExtensionAPI) {
 		const config = loadConfig();
 		const configuredSummaryModel = typeof config.summaryModel === "string" ? config.summaryModel.trim() : "";
 		const preferredDefaults = [
+			// fork: OpenCode GO's DeepSeek V4 Flash is the preferred summary model
+			{ provider: "opencode-go", id: "deepseek-v4-flash" },
 			{ provider: "anthropic", id: "claude-haiku-4-5" },
 			{ provider: "openai-codex", id: "gpt-5.6-luna" },
 			{ provider: "openai-codex", id: "gpt-5.6-terra" },

@@ -19,6 +19,7 @@ FORK_ANCHORS=(
   "Multiple queries, each returns its own answer" # 5a574ed: slimmed queries field
   "Video timestamp for frame extraction"          # 5a574ed: slimmed timestamp field
   "summary-review (browser curator) disabled"     # fork delta 3: default workflow is auto-summary
+  "OpenCode GO's DeepSeek V4 Flash"               # fork delta 4: preferred summary model
 )
 
 PUSH=0

@@ -10,6 +10,9 @@ deltas in `index.ts` that **must survive every upstream sync**:
    token cost by ~35% (commit `5a574ed`).
 3. Default search workflow is `auto-summary`; the browser curator
    (`summary-review`) is disabled (`resolveWorkflow`, `index.ts`).
+4. Preferred summary model is OpenCode GO's DeepSeek V4 Flash
+   (`opencode-go/deepseek-v4-flash`, `preferredDefaults` in
+   `loadSummaryModelChoices`, `index.ts`).
 
 Read **FORK.md** for the full delta listing, exact diffs, and conflict
 resolution rules before doing any merge work.
@@ -53,6 +56,7 @@ grep -n 'Search the web; returns an AI-synthesized' index.ts
 grep -n 'Multiple queries, each returns its own answer' index.ts
 grep -n 'Video timestamp for frame extraction' index.ts
 grep -n 'summary-review (browser curator) disabled' index.ts
+grep -n "OpenCode GO's DeepSeek V4 Flash" index.ts
 ```
 
 ## Hard rules
@@ -66,6 +70,10 @@ grep -n 'summary-review (browser curator) disabled' index.ts
   fork default is `auto-summary` (browser curator disabled); an explicit
   `"none"` remains honored. If upstream touches that function, keep the
   fork's version of the conflicting lines.
+- **Never remove the `opencode-go/deepseek-v4-flash` entry** from the top of
+  `preferredDefaults` in `loadSummaryModelChoices()` — it is the fork's
+  preferred summary model. If upstream reorders that list, keep the fork's
+  ordering of the conflicting lines.
 - **No rebase, no `git reset`, no force-push on `main`** — merge history only.
 - `source_check` can be re-enabled per machine via `~/.pi/web-search.json`
   (`{ "tools": { "sourceCheck": { "enabled": true } } }`) — that is the
