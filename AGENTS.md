@@ -8,6 +8,8 @@ deltas in `index.ts` that **must survive every upstream sync**:
    overhead of an unused tool.
 2. Tool descriptions and parameter schemas are slimmed to cut per-message
    token cost by ~35% (commit `5a574ed`).
+3. Default search workflow is `auto-summary`; the browser curator
+   (`summary-review`) is disabled (`resolveWorkflow`, `index.ts`).
 
 Read **FORK.md** for the full delta listing, exact diffs, and conflict
 resolution rules before doing any merge work.
@@ -50,6 +52,7 @@ grep -n 'fork default: disabled' index.ts
 grep -n 'Search the web; returns an AI-synthesized' index.ts
 grep -n 'Multiple queries, each returns its own answer' index.ts
 grep -n 'Video timestamp for frame extraction' index.ts
+grep -n 'summary-review (browser curator) disabled' index.ts
 ```
 
 ## Hard rules
@@ -59,6 +62,10 @@ grep -n 'Video timestamp for frame extraction' index.ts
 - **Never remove the `sourceCheck` default-off line** in `isToolEnabled()` —
   it is intentional. If upstream touches that function, keep the fork's
   version of the conflicting lines.
+- **Never restore `summary-review` resolution** in `resolveWorkflow()` — the
+  fork default is `auto-summary` (browser curator disabled); an explicit
+  `"none"` remains honored. If upstream touches that function, keep the
+  fork's version of the conflicting lines.
 - **No rebase, no `git reset`, no force-push on `main`** — merge history only.
 - `source_check` can be re-enabled per machine via `~/.pi/web-search.json`
   (`{ "tools": { "sourceCheck": { "enabled": true } } }`) — that is the

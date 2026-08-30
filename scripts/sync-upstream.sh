@@ -18,6 +18,7 @@ FORK_ANCHORS=(
   "Search the web; returns an AI-synthesized"     # 5a574ed: slimmed web_search description
   "Multiple queries, each returns its own answer" # 5a574ed: slimmed queries field
   "Video timestamp for frame extraction"          # 5a574ed: slimmed timestamp field
+  "summary-review (browser curator) disabled"     # fork delta 3: default workflow is auto-summary
 )
 
 PUSH=0
