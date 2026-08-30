@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,9 +10,22 @@ import { getActiveProxy, installGlobalProxyFetch, runWithProxy } from "../utils.
 
 const originalFetch = globalThis.fetch;
 const originalPath = process.env.PATH;
-const originalAgentDir = process.env.PI_CODING_AGENT_DIR;
 const originalNoProxy = process.env.NO_PROXY;
 const originalNoProxyLower = process.env.no_proxy;
+const utilsUrl = new URL("../utils.ts", import.meta.url).href;
+
+function runConfigProbe(dir, script) {
+	const child = spawnSync(process.execPath, ["--input-type=module"], {
+		input: `
+			const { getActiveProxy, runWithProxy } = await import(${JSON.stringify(utilsUrl)});
+			${script}
+		`,
+		encoding: "utf8",
+		env: { ...process.env, PI_CODING_AGENT_DIR: dir },
+	});
+	assert.equal(child.status, 0, child.stderr);
+	return JSON.parse(child.stdout);
+}
 
 async function withFakeCurl(t, routes, fn) {
 	const dir = await mkdtemp(join(tmpdir(), "pi-proxy-test-"));
@@ -130,29 +144,39 @@ test("proxy curl redirects strip caller headers across origins", async (t) => {
 test("omitted proxy uses global config while empty string forces direct access", async (t) => {
 	const dir = await mkdtemp(join(tmpdir(), "pi-proxy-config-test-"));
 	await writeFile(join(dir, "web-search.json"), JSON.stringify({ proxy: "http://global-proxy.example:8080" }));
-	process.env.PI_CODING_AGENT_DIR = dir;
 	t.after(async () => {
-		if (originalAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
-		else process.env.PI_CODING_AGENT_DIR = originalAgentDir;
 		await rm(dir, { recursive: true, force: true });
 	});
 
-	assert.equal(runWithProxy(undefined, () => getActiveProxy()), "http://global-proxy.example:8080/");
-	assert.equal(runWithProxy("", () => getActiveProxy()), null);
-	assert.equal(runWithProxy("http://call-proxy.example:8080", () => getActiveProxy()), "http://call-proxy.example:8080/");
+	assert.deepEqual(runConfigProbe(dir, `
+		console.log(JSON.stringify([
+			runWithProxy(undefined, () => getActiveProxy()),
+			runWithProxy("", () => getActiveProxy()),
+			runWithProxy("http://call-proxy.example:8080", () => getActiveProxy()),
+		]));
+	`), [
+		"http://global-proxy.example:8080/",
+		null,
+		"http://call-proxy.example:8080/",
+	]);
 });
 
 test("invalid configured proxy fails closed instead of direct fetching", async (t) => {
 	const dir = await mkdtemp(join(tmpdir(), "pi-proxy-invalid-config-test-"));
 	await writeFile(join(dir, "web-search.json"), JSON.stringify({ proxy: "socks5://proxy.example:1080" }));
-	process.env.PI_CODING_AGENT_DIR = dir;
 	t.after(async () => {
-		if (originalAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
-		else process.env.PI_CODING_AGENT_DIR = originalAgentDir;
 		await rm(dir, { recursive: true, force: true });
 	});
 
-	assert.throws(() => getActiveProxy(), /proxy.*must use the http:\/\/ or https:\/\/ scheme/);
+	assert.match(runConfigProbe(dir, `
+		let message = "";
+		try {
+			getActiveProxy();
+		} catch (error) {
+			message = error.message;
+		}
+		console.log(JSON.stringify(message));
+	`), /proxy.*must use the http:\/\/ or https:\/\/ scheme/);
 });
 
 test("proxy transport does not spawn curl for pre-aborted requests", async (t) => {

@@ -5,10 +5,24 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir, hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 
+let cachedWebSearchConfigDir: string | undefined;
+
 export function getWebSearchConfigDir(): string {
-	if (process.env.PI_CODING_AGENT_DIR) return process.env.PI_CODING_AGENT_DIR;
-	if (process.env.XDG_CONFIG_HOME) return join(process.env.XDG_CONFIG_HOME, "pi");
-	return join(homedir(), ".pi");
+	if (cachedWebSearchConfigDir) return cachedWebSearchConfigDir;
+
+	const explicitDir = process.env.PI_CODING_AGENT_DIR;
+	if (explicitDir) return cachedWebSearchConfigDir = explicitDir;
+
+	const xdgConfigHome = process.env.XDG_CONFIG_HOME;
+	if (xdgConfigHome) {
+		const xdgDir = join(xdgConfigHome, "pi");
+		if (existsSync(join(xdgDir, "web-search.json"))) return cachedWebSearchConfigDir = xdgDir;
+
+		const legacyDir = join(homedir(), ".pi");
+		if (existsSync(join(legacyDir, "web-search.json"))) return cachedWebSearchConfigDir = legacyDir;
+		return cachedWebSearchConfigDir = xdgDir;
+	}
+	return cachedWebSearchConfigDir = join(homedir(), ".pi");
 }
 
 export function getWebSearchConfigPath(): string {

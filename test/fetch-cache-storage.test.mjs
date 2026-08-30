@@ -3,14 +3,24 @@ import { chmodSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, syml
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { afterEach, test } from "node:test";
-
-import initializeExtension from "../index.ts";
-import { clearResults, deleteResult, getFetchCacheDir, getResult, pruneExpiredFetchCache, restoreFromSession, storeFetchedContentResult } from "../storage.ts";
+import { after, afterEach, test } from "node:test";
 
 const originalFetch = globalThis.fetch;
 const originalAgentDir = process.env.PI_CODING_AGENT_DIR;
 const originalDateNow = Date.now;
+const testAgentDir = await mkdtemp(join(tmpdir(), "pi-web-access-fetch-cache-"));
+process.env.PI_CODING_AGENT_DIR = testAgentDir;
+
+const { default: initializeExtension } = await import("../index.ts");
+const {
+	clearResults,
+	deleteResult,
+	getFetchCacheDir,
+	getResult,
+	pruneExpiredFetchCache,
+	restoreFromSession,
+	storeFetchedContentResult,
+} = await import("../storage.ts");
 
 afterEach(() => {
 	globalThis.fetch = originalFetch;
@@ -20,10 +30,16 @@ afterEach(() => {
 	clearResults();
 });
 
+after(() => {
+	if (originalAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+	else process.env.PI_CODING_AGENT_DIR = originalAgentDir;
+	rmSync(testAgentDir, { recursive: true, force: true });
+});
+
 async function useTempAgentDir() {
-	const dir = await mkdtemp(join(tmpdir(), "pi-web-access-fetch-cache-"));
-	process.env.PI_CODING_AGENT_DIR = dir;
-	return dir;
+	process.env.PI_CODING_AGENT_DIR = testAgentDir;
+	rmSync(join(testAgentDir, "web-search-cache"), { recursive: true, force: true });
+	return testAgentDir;
 }
 
 function registerTools() {
@@ -154,7 +170,6 @@ test("missing cache files return an actionable fetched-content error", async () 
 	const missing = await getContentTool.execute("call", { responseId: result.details.responseId, urlIndex: 0 });
 	assert.equal(missing.details.error, "Cached fetched content is missing or expired");
 	assert.match(missing.content[0].text, /Cached fetched content is missing or expired/);
-	rmSync(agentDir, { recursive: true, force: true });
 });
 
 test("cache pruning evicts the oldest entries by count and bytes", async () => {

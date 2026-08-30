@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 
 - Cleaned stale GitHub clone runtime directories after a crashed process when the owner can be proven dead, while preserving runtimes with unknown or live owners. Thanks to [@yazanabuashour](https://github.com/yazanabuashour) for issue #331.
+- Kept an existing legacy `~/.pi/web-search.json` in use when `XDG_CONFIG_HOME` is set but its XDG config file is absent. Thanks to [@hu3rror](https://github.com/hu3rror) for issue #333.
 
 ## [0.27.0] - 2026-08-28
 
